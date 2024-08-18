@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Immediate
+.vscode
+.xmake
+build
+
