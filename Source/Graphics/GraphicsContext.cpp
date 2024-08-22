@@ -5,16 +5,12 @@
  */
 
 
+#include <vector>
+
+#define GLFW_INCLUDE_OPENGL
 #include "GLFW/glfw3.h"
-
-#ifdef __APPLE__
-#define GLFW_EXPOSE_NATIVE_COCOA
-#endif
-#include "GLFW/glfw3native.h"
-
-#include "bgfx/bgfx.h"
-#include "bgfx/platform.h"
-#include <spdlog/spdlog.h>
+#include "glad/glad.h"
+#include "spdlog/spdlog.h"
 
 #include "Graphics/GraphicsContext.h"
 
@@ -32,7 +28,7 @@ GraphicsContext::GraphicsContext(int Width, int Height, const std::string& Title
 
 
 GraphicsContext::~GraphicsContext() {
-    BGFXTerminate();
+    GLTerminate();
     GLFWTerminate();
 }
 
@@ -42,7 +38,7 @@ bool GraphicsContext::Init() noexcept {
         return false;
     }
 
-    if (!BGFXInit()) {
+    if (!GLInit()) {
         return false;
     }
 
@@ -51,29 +47,17 @@ bool GraphicsContext::Init() noexcept {
 
 
 void GraphicsContext::Step(double DeltaTime) noexcept {
-    glfwPollEvents();
-    HandleResizeWindow();
-    bgfx::touch(0);
-    bgfx::setViewRect(0, 0, 0, mWidth, mHeight);
-    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x443355FF, 1.0f, 0);
 
-    // ImGuiStep(DeltaTime);
-    bgfx::frame();
+    glClearColor(0.3f, 0.6f, 0.5f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glfwSwapBuffers(mWindow);
+    glfwPollEvents();
 }
 
 
 bool GraphicsContext::ShouldExit() noexcept {
     return glfwWindowShouldClose(mWindow);
-}
-
-
-void GraphicsContext::HandleResizeWindow() noexcept {
-    int OldWidth = mWidth, OldHeight = mHeight;
-    glfwGetWindowSize(mWindow, &mWidth, &mHeight);
-    if (OldWidth!= mWidth || OldHeight!= mHeight) {
-        bgfx::reset(mWidth, mHeight, BGFX_RESET_VSYNC);
-        bgfx::setViewRect(0, 0, 0, mWidth, mHeight);
-    }
 }
 
 
@@ -87,6 +71,7 @@ bool GraphicsContext::GLFWInit() noexcept {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    // glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
     mWindow = glfwCreateWindow(mWidth, mHeight, mTitle.c_str(), nullptr, nullptr);
     if (!mWindow) {
@@ -113,6 +98,7 @@ bool GraphicsContext::GLFWInit() noexcept {
         auto* Context = reinterpret_cast<GraphicsContext*>(glfwGetWindowUserPointer(Window));
         Context->mWidth = Width;
         Context->mHeight = Height;
+        glViewport(0, 0, Context->mWidth, Context->mHeight);
     });
 
     return true;
@@ -125,39 +111,19 @@ void GraphicsContext::GLFWTerminate() noexcept {
 }
 
 
-bool GraphicsContext::BGFXInit() noexcept {
-    bgfx::renderFrame();
-    bgfx::Init BGFX_Init;
-    BGFX_Init.type = bgfx::RendererType::OpenGL;
-    BGFX_Init.resolution.width = mWidth;
-    BGFX_Init.resolution.height = mHeight;
-    BGFX_Init.resolution.reset = BGFX_RESET_VSYNC;
-
-    bgfx::PlatformData pd;
-    pd.backBuffer = nullptr;
-    pd.context = nullptr;
-    pd.ndt = nullptr;
-    pd.nwh = glfwGetCocoaWindow(mWindow);
-    pd.type = bgfx::NativeWindowHandleType::Count;
-    BGFX_Init.platformData = pd;
-
-    if (!bgfx::init(BGFX_Init)) {
-        spdlog::error("Failed to initialize BGFX");
+bool GraphicsContext::GLInit() noexcept {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        spdlog::error("Failed to initialize GLAD");
         return false;
     }
 
-    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x443355FF, 1.0f, 0);
-    bgfx::setViewRect(0, 0, 0, mWidth, mHeight);
+    glViewport(0, 0, mWidth, mHeight);
 
     return true;
 }
 
-
-void GraphicsContext::BGFXTerminate() noexcept {
-    bgfx::shutdown();
+void GraphicsContext::GLTerminate() noexcept {
 }
-
-
 
 
 } // namespace be

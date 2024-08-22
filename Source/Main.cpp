@@ -8,10 +8,15 @@
 #include <spdlog/spdlog.h>
 #include "Graphics/GraphicsContext.h"
 
+
 int main(int, char**)
 {
 	be::GraphicsContext Context(1280, 720, "BeEngine");
-	Context.Init();
+	
+	if (!Context.Init()) {
+		spdlog::error("Failed to initialize graphics context");
+		return -1;
+	}
 
 	while (!Context.ShouldExit()) {
 		Context.Step(1.0 / 60.0);

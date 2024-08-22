@@ -6,7 +6,6 @@
 
 #pragma once
 
-
 #include <string>
 
 namespace be {
@@ -20,20 +19,20 @@ public:
     bool Init() noexcept;
     void Step(double DeltaTime) noexcept;
     bool ShouldExit() noexcept;
-    void HandleResizeWindow() noexcept;
 
 private:
     bool GLFWInit() noexcept;
     void GLFWTerminate() noexcept;
 
-    bool BGFXInit() noexcept;
-    void BGFXTerminate() noexcept;
+    bool GLInit() noexcept;
+    void GLTerminate() noexcept;
 
 private:
     std::string mTitle;
     class GLFWwindow* mWindow;
     int mWidth;
     int mHeight;
+
 };
 
 
