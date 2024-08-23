@@ -48,9 +48,6 @@ bool GraphicsContext::Init() noexcept {
 
 void GraphicsContext::Step(double DeltaTime) noexcept {
 
-    glClearColor(0.3f, 0.6f, 0.5f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
     glfwSwapBuffers(mWindow);
     glfwPollEvents();
 }
