@@ -1,0 +1,4 @@
+
+
+#define SHADER_PATH "${SHADER_PATH}"
+

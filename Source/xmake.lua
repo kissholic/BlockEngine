@@ -13,6 +13,7 @@ target("Main")
     set_kind("binary")
     add_files("*.cpp")
     add_deps("Graphics")
-    add_packages("spdlog")
+    add_packages("spdlog", "glad", "glfw")
     add_cxxflags("-g")
+    
 
