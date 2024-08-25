@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "OpenGL/GL.h"
+#include <glad/glad.h>
 
 #include <filesystem>
 #include <string>
