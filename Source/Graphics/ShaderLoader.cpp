@@ -116,5 +116,22 @@ ShaderProgramWrapper CreateShaderProgram(const ShaderWrapper& VertexShader, cons
 }
 
 
+void ShaderProgramWrapper::SetUniform1(const std::string& Name, bool Value) const noexcept {
+    int location = glGetUniformLocation(mShaderProgramHandle, Name.c_str());
+    glUniform1i(location, static_cast<int>(Value));
+}
+
+
+void ShaderProgramWrapper::SetUniform1(const std::string& Name, int Value) const noexcept {
+    int location = glGetUniformLocation(mShaderProgramHandle, Name.c_str());
+    glUniform1i(location, Value);
+}
+
+
+void ShaderProgramWrapper::SetUniform1(const std::string& Name, float Value) const noexcept {
+    int location = glGetUniformLocation(mShaderProgramHandle, Name.c_str());
+    glUniform1f(location, Value);
+}
+
 
 } // namespace be

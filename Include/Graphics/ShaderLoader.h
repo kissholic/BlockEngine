@@ -7,7 +7,7 @@
 #pragma once
 
 #include <glad/glad.h>
-
+#include "spdlog/spdlog.h"
 #include <filesystem>
 #include <string>
 
@@ -48,6 +48,10 @@ public:
     bool IsValid() const noexcept { return mShaderProgramHandle!= 0; }
 
     void Use() const noexcept;
+
+    void SetUniform1(const std::string& Name, bool Value) const noexcept;
+    void SetUniform1(const std::string& Name, int Value) const noexcept;
+    void SetUniform1(const std::string& Name, float Value) const noexcept;
 
 private:
     unsigned int mShaderProgramHandle;
