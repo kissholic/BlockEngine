@@ -1,7 +1,5 @@
 
 
-add_requires("bgfx")
-add_requires("box2d")
 add_requires("glfw", "glad")
 add_requires("glm")
 add_requires("spdlog")
