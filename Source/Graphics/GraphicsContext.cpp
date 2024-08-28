@@ -12,6 +12,10 @@
 #include "glad/glad.h"
 #include "spdlog/spdlog.h"
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 #include "Graphics/GraphicsContext.h"
 
 
@@ -28,6 +32,7 @@ GraphicsContext::GraphicsContext(int Width, int Height, const std::string& Title
 
 
 GraphicsContext::~GraphicsContext() {
+    ImGuiTerminate();
     GLTerminate();
     GLFWTerminate();
 }
@@ -41,12 +46,19 @@ bool GraphicsContext::Init() noexcept {
     if (!GLInit()) {
         return false;
     }
+    
+    if (!ImGuiInit()) {
+        return false;
+    }
 
     return true;
 }
 
 
 void GraphicsContext::Step(double DeltaTime) noexcept {
+    ImGuiStepPrev();
+    ImGuiStep(DeltaTime);
+    ImGuiStepPost();
 
     glfwSwapBuffers(mWindow);
     glfwPollEvents();
@@ -120,6 +132,47 @@ bool GraphicsContext::GLInit() noexcept {
 }
 
 void GraphicsContext::GLTerminate() noexcept {
+}
+
+
+bool GraphicsContext::ImGuiInit() noexcept {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    ImGui::StyleColorsDark();
+
+	ImGui_ImplGlfw_InitForOpenGL(glfwGetCurrentContext(), true);
+	ImGui_ImplOpenGL3_Init();
+
+	return true;
+}
+
+
+void GraphicsContext::ImGuiTerminate() noexcept {
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
+}
+
+
+void GraphicsContext::ImGuiStepPrev() noexcept {
+	ImGui_ImplOpenGL3_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
+}
+
+
+void GraphicsContext::ImGuiStep(double DeltaTime) noexcept {
+	ImGui::ShowDemoWindow();
+}
+
+
+void GraphicsContext::ImGuiStepPost() noexcept {
+	ImGui::Render();
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 

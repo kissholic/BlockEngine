@@ -27,6 +27,12 @@ private:
     bool GLInit() noexcept;
     void GLTerminate() noexcept;
 
+    bool ImGuiInit() noexcept;
+    void ImGuiTerminate() noexcept;
+    void ImGuiStepPrev() noexcept;
+    void ImGuiStep(double DeltaTime) noexcept;
+    void ImGuiStepPost() noexcept;
+
 private:
     std::string mTitle;
     class GLFWwindow* mWindow;

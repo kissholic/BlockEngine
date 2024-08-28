@@ -4,6 +4,8 @@ add_requires("glfw", "glad")
 add_requires("glm")
 add_requires("spdlog")
 add_requires("concurrencpp")
+add_requires("imgui", {configs = {glfw=true, opengl3=true}})
+
 includes("Graphics")
 
 
