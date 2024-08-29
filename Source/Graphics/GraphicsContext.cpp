@@ -166,7 +166,14 @@ void GraphicsContext::ImGuiStepPrev() noexcept {
 
 
 void GraphicsContext::ImGuiStep(double DeltaTime) noexcept {
-	ImGui::ShowDemoWindow();
+	ImGui::Begin("Config Menu");
+
+    ImGui::Text("FPS: %.2f", ImGui::GetIO().Framerate);
+    static float f;
+    ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
+    ImGui::Spacing();
+
+    ImGui::End();
 }
 
 
