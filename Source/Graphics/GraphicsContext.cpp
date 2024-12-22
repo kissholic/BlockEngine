@@ -61,7 +61,6 @@ void GraphicsContext::Step(double DeltaTime) noexcept {
     ImGuiStepPost();
 
     glfwSwapBuffers(mWindow);
-    glfwPollEvents();
 }
 
 

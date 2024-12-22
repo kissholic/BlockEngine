@@ -50,6 +50,8 @@ bool BlockEngine::PostInit() noexcept {
 }
 
 void BlockEngine::Step(float DeltaTime) noexcept {
+    InputSystem::Get().Process();
+    
     mGraphicsContext->Step(DeltaTime);
 }
 
