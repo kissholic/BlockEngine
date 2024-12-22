@@ -20,6 +20,10 @@ public:
     void Step(double DeltaTime) noexcept;
     bool ShouldExit() noexcept;
 
+    operator GLFWwindow*() const noexcept {
+        return mWindow;
+    }
+
 private:
     bool GLFWInit() noexcept;
     void GLFWTerminate() noexcept;
@@ -35,7 +39,7 @@ private:
 
 private:
     std::string mTitle;
-    class GLFWwindow* mWindow;
+    struct GLFWwindow* mWindow;
     int mWidth;
     int mHeight;
 

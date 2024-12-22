@@ -13,6 +13,7 @@
 #include "Graphics/GraphicsContext.h"
 #include "Graphics/ShaderLoader.h"
 #include "Path.h"
+#include "Engine.h"
 
 #include "BEConfig.h"
 
@@ -26,10 +27,11 @@ float vertices[] = {
 
 int main(int, char**)
 {
-	be::GraphicsContext Context(1280, 720, "BeEngine");
+	// be::GraphicsContext Context(1280, 720, "BeEngine");
+	be::BlockEngine::GEngine = std::make_unique<be::BlockEngine>();
 	
-	if (!Context.Init()) {
-		spdlog::error("Failed to initialize graphics context");
+	if (!be::BlockEngine::GEngine->Init()) {
+		spdlog::error("Failed to initialize engine");
 		return -1;
 	}
 
@@ -52,14 +54,14 @@ int main(int, char**)
 	shaderProgram.Use();
 	glBindVertexArray(VBO);
 
-	while (!Context.ShouldExit()) {
+	while (!be::BlockEngine::GEngine->ShouldExit()) {
 		glClearColor(0.3f, 0.6f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
 		shaderProgram.Use();
 		glBindVertexArray(VAO);
 		glDrawArrays(GL_TRIANGLES, 0, 3);
-		Context.Step(1.0 / 60.0);
+		be::BlockEngine::GEngine->Step(1.0 / 60.0);
 	}
 
 	return 0;
