@@ -8,6 +8,8 @@
 
 #include <string>
 
+struct GLFWwindow;
+
 namespace be {
 
 
@@ -39,7 +41,7 @@ private:
 
 private:
     std::string mTitle;
-    struct GLFWwindow* mWindow;
+    GLFWwindow* mWindow;
     int mWidth;
     int mHeight;
 

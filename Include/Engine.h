@@ -7,8 +7,9 @@
 #pragma once
 
 #include <memory>
-#include "Input/InputSystem.h"
 #include "Graphics/GraphicsContext.h"
+#include "Input/InputSystem.h"
+#include "Scene/Scene.h"
 
 namespace be {
 
@@ -36,6 +37,7 @@ private:
 
 private:
     std::unique_ptr<GraphicsContext> mGraphicsContext;
+    SceneRef mScene;
 };
 
 
