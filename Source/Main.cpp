@@ -52,13 +52,19 @@ int main(int, char**)
 	auto shaderProgram = be::CreateShaderProgram(vertexPath, fragShaderPath);
 
 	shaderProgram.Use();
-	glBindVertexArray(VBO);
+	//glBindVertexArray(VBO);
 
 	while (!be::BlockEngine::GEngine->ShouldExit()) {
 		glClearColor(0.3f, 0.6f, 0.5f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
 		shaderProgram.Use();
+
+		// glBindBuffer(GL_ARRAY_BUFFER, VBO);
+		// vertices[0] += 0.001f;
+		// glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+		// spdlog::error("loop log");
+		
 		glBindVertexArray(VAO);
 		glDrawArrays(GL_TRIANGLES, 0, 3);
 		be::BlockEngine::GEngine->Step(1.0 / 60.0);

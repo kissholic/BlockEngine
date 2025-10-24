@@ -8,7 +8,9 @@ add_requires("imgui", {configs = {glfw=true, opengl3=true}})
 add_requires("box2d")
 
 
+includes("Component")
 includes("Camera")
+includes("GameObject")
 includes("Graphics")
 includes("Input")
 

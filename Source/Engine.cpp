@@ -5,7 +5,8 @@
  */
 
 #include "Engine.h"
-
+#include "Input/InputSystem.h"
+#include "spdlog/spdlog.h"
 
 
 namespace be {
@@ -46,8 +47,19 @@ bool BlockEngine::PreInit() noexcept {
 }
 
 bool BlockEngine::PostInit() noexcept {
+    if (!InitInput())
+        return false;
+
     return true;
 }
+
+bool BlockEngine::InitInput() noexcept {
+    auto& inputSystem = InputSystem::Get();
+    inputSystem.Init((GLFWwindow*)*mGraphicsContext.get());
+
+    return true;
+}
+
 
 void BlockEngine::Step(float DeltaTime) noexcept {
     InputSystem::Get().Process();

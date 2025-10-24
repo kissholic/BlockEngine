@@ -23,12 +23,18 @@ public:
         return Instance;
     }
 
+    InputSystem(InputSystem const&) = delete;
+    InputSystem& operator=(InputSystem const&) = delete;
+
     bool Init(GLFWwindow* Window) noexcept;
 
     void RegisterCallback(int Code, int Action, InputCallback const& Callback) noexcept;
     void UnregisterCallback(int Code, int Action, InputCallback const& Callback) noexcept;
 
     void Process() noexcept;
+
+private:
+    InputSystem() = default;
 
 private:
     GLFWwindow* mWindow;

@@ -7,10 +7,11 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <string>
 #include <vector>
 
-#include "GameObject.h"
+#include "GameObject/GameObject.h"
 
 namespace be {
 
@@ -30,7 +31,7 @@ public:
     }
 
     void RemoveGameObject(GameObjectRef Obj) noexcept {
-        std::ranges::remove(mGameObjects, Obj);
+        assert(0 && "Not implemented");
     }
 
 private:

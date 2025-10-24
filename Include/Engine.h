@@ -35,6 +35,8 @@ private:
     // Initialize game systems
     bool PostInit() noexcept;
 
+    bool InitInput() noexcept;
+
 private:
     std::unique_ptr<GraphicsContext> mGraphicsContext;
     SceneRef mScene;

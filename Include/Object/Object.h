@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 
 namespace be {
@@ -16,7 +17,7 @@ namespace be {
 class Object;
 
 template<typename T>
-concept IsObject = std::is_base_of<Object, T>::value;
+concept IsObject = std::is_base_of_v<Object, T>;
 
 class Object {
     template<IsObject T>
@@ -53,6 +54,10 @@ public:
         if (mObj) {
             mObj->IncRefCount();
         }
+    }
+
+    ObjectRef(ObjectRef&& Ref) noexcept : mObj(Ref.mObj) {
+        Ref.mObj = nullptr;
     }
 
     ~ObjectRef() noexcept {
@@ -110,83 +115,57 @@ private:
 
 
 template <IsObject T>
-class ObjectRefT {
+class ObjectRefT : public ObjectRef {
 public:
-    ObjectRefT() noexcept : mObj(nullptr) {}
-    ObjectRefT(std::nullptr_t) noexcept : mObj(nullptr) {}
+    ObjectRefT() noexcept : ObjectRef(nullptr) {}
+    ObjectRefT(std::nullptr_t) noexcept : ObjectRef(nullptr) {}
 
-    ObjectRefT(T* Obj) noexcept : mObj(Obj) {
-        if (mObj) {
-            mObj->IncRefCount();
-        }
+    ObjectRefT(T* Obj) noexcept : ObjectRef(Obj) {
     }
 
-    ObjectRefT(const ObjectRefT& Ref) noexcept : mObj(Ref.mObj) {
-        if (mObj) {
-            mObj->IncRefCount();
-        }
+    ObjectRefT(const ObjectRefT& Ref) noexcept : ObjectRef(Ref) {}
+
+    template<typename U>
+    ObjectRefT(const ObjectRefT<U>& Ref) noexcept : ObjectRef(Ref) {
     }
 
-    ~ObjectRefT() noexcept {
-        if (mObj) {
-            mObj->DecRefCount();
-        }
+    template<typename U>
+    ObjectRefT(ObjectRefT<U>&& Ref) noexcept : ObjectRef(std::move(Ref)) {
     }
+
+    ~ObjectRefT() noexcept = default;
 
     ObjectRefT& operator=(const ObjectRefT& Ref) noexcept {
-        if (this!= &Ref) {
-            if (mObj) {
-                mObj->DecRefCount();
-            }
-            mObj = Ref.mObj;
-            if (mObj) {
-                mObj->IncRefCount();
-            }
-        }
+        ObjectRef::operator=(Ref);
         return *this;
     }
 
     ObjectRefT& operator=(T* Obj) noexcept {
-        if (mObj) {
-            mObj->DecRefCount();
-        }
-        mObj = Obj;
-        if (mObj) {
-            mObj->IncRefCount();
-        }
+        ObjectRef::operator=(Obj);
         return *this;
     }
 
     ObjectRefT& operator=(ObjectRefT&& Ref) noexcept {
-        if (this!= &Ref) {
-            if (mObj) {
-                mObj->DecRefCount();
-            }
-            mObj = Ref.mObj;
-            Ref.mObj = nullptr;
-        }
+        ObjectRef::operator=(std::move(Ref));
         return *this;
     }
 
-    bool operator==(const ObjectRefT& Ref) const noexcept { return mObj == Ref.mObj; }
-    bool operator!=(const ObjectRefT& Ref) const noexcept { return mObj != Ref.mObj; }
+    T* Get() const noexcept {
+        auto* ref = ObjectRef::Get();
+        return static_cast<T*>(ref);
+    }
 
-    T* Get() const noexcept { return mObj; }
+    T* operator->() const noexcept { return Get(); }
+    T* operator->() noexcept { return Get(); }
 
-    T* operator->() const noexcept { return mObj; }
-    T* operator->() noexcept { return mObj; }
-
-    T& operator*() const noexcept { return *mObj; }
-    T& operator*() noexcept { return *mObj; }
-
-private:
-    T* mObj;
+    T& operator*() const noexcept { return *Get(); }
+    T& operator*() noexcept { return *Get(); }
 };
 
 
 template<IsObject T>
-ObjectRef MakeObject(auto&&... Args) noexcept {
-    return ObjectRef(new T(std::forward<decltype(Args)>(Args)...));
+ObjectRefT<T> MakeObject(auto&&... Args) noexcept {
+    return ObjectRefT(new T(std::forward<decltype(Args)>(Args)...));
 }
 
 } // namespace be

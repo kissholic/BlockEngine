@@ -8,15 +8,35 @@
 
 #include <glm/glm.hpp>
 
+#include "GameObject/GameObject.h"
+
 
 namespace be {
 
-class Camera {
-
+class Camera : public GameObject {
 public:
+    Camera(glm::vec3 const& position, glm::vec3 const& face, glm::vec3 up);
+    ~Camera();
+
+    void UpdateCamera() noexcept;
+
+private:
     glm::vec3 mPosition;
+    glm::vec3 mFace;
     glm::vec3 mUp;
-    glm::vec3 mRight;
+
+    glm::mat4 mView;
+
+    float mFov;
+    float mWidth;
+    float mHeight;
+
+    float mNear;
+    float mFar;
+
+    glm::mat4 mProjection;
+
+    glm::mat4 mVP; // not MVP
 };
 
 

@@ -52,6 +52,9 @@ public:
     void SetUniform1(const std::string& Name, bool Value) const noexcept;
     void SetUniform1(const std::string& Name, int Value) const noexcept;
     void SetUniform1(const std::string& Name, float Value) const noexcept;
+    void SetUniformM2(const std::string& Name, bool Transpose, GLfloat* Data);
+    void SetUniformM3(const std::string& Name, bool Transpose, GLfloat* Data);
+    void SetUniformM4(const std::string& Name, bool Transpose, GLfloat* Data);
 
 private:
     unsigned int mShaderProgramHandle;

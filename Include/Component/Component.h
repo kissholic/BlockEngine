@@ -6,16 +6,23 @@
 
 #pragma once
 
-#include "Object.h"
+#include <vector>
+
+#include "Object/Object.h"
 
 
 namespace be {
 
-class Component {
+class Component : public Object {
 public:
     Component() = default;
     virtual ~Component() = default;
 
+    void SetRoot(class GameObject* obj);
+
+private:
+    Object* mParent;
+    std::vector<ObjectRef> mSubComponents;
 };
 
 

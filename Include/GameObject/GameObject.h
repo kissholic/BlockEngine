@@ -6,34 +6,26 @@
 
 #pragma once
 
-#include "Object.h"
+#include "Object/Object.h"
+#include "Component/Component.h"
 
 namespace be {
 
-struct GameObjectPosition {
-    float X;
-    float Y;
-    float Z;
-};
-
-struct GameObjectScale {
-    float X;
-    float Y;
-};
+class Camera;
+class Component;
 
 class GameObject : public Object {
 public:
 
     virtual void Step([[maybe_unused]] double DeltaTime) noexcept {}
 
-    GameObjectPosition mPosition;
-    GameObjectScale mScale;
-    float mRotation;
+private:
+    ComponentRef mRoot;
 };
 
 
 template<typename T>
-concept IsGameObject = std::is_base_of<GameObject, T>::value;
+concept IsGameObject = std::is_base_of_v<GameObject, T>;
 
 
 using GameObjectRef = ObjectRefT<GameObject>;
