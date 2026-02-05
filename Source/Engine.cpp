@@ -30,9 +30,9 @@ bool BlockEngine::Init() noexcept {
 
     {
         // Initialize input context
-        if (!InputSystem::Get().Init(*mGraphicsContext)) {
-            return false;
-        }
+        // if (!InputSystem::Get().Init(*mGraphicsContext)) {
+        //     return false;
+        // }
     }
 
     if (!PostInit()) {
@@ -54,8 +54,8 @@ bool BlockEngine::PostInit() noexcept {
 }
 
 bool BlockEngine::InitInput() noexcept {
-    auto& inputSystem = InputSystem::Get();
-    inputSystem.Init((GLFWwindow*)*mGraphicsContext.get());
+    // auto& inputSystem = InputSystem::Get();
+    // inputSystem.Init((GLFWwindow*)*mGraphicsContext.get());
 
     return true;
 }

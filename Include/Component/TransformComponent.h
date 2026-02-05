@@ -8,7 +8,6 @@
 
 #include <vector>
 #include "Component.h"
-#include <glm/glm.hpp>
 
 
 namespace be {

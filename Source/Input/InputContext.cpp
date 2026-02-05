@@ -5,35 +5,36 @@
  */
 
 #include "Input/InputSystem.h"
-#include <glfw/glfw3.h>
+#include <SDL3/SDL_events.h>
 
 
 namespace be {
 
 
-bool InputSystem::Init(GLFWwindow* Window) noexcept {
-    mWindow = Window;
-    glfwSetKeyCallback(mWindow, []([[maybe_unused]] GLFWwindow* Window, int Key, [[maybe_unused]] int Scancode, int Action, [[maybe_unused]] int Mods) {
-        InputSystem::Get().mInputEvents[Action][Key].Invoke();
-    });
+// bool InputSystem::Init(GLFWwindow* Window) noexcept {
+//     mWindow = Window;
+//     glfwSetKeyCallback(mWindow, []([[maybe_unused]] GLFWwindow* Window, int Key, [[maybe_unused]] int Scancode, int Action, [[maybe_unused]] int Mods) {
+//         InputSystem::Get().mInputEvents[Action][Key].Invoke();
+//     });
 
-    return true;
-}
-
-
-void InputSystem::RegisterCallback(int Code, int Action, InputCallback const& Callback) noexcept {
-    mInputEvents[Action][Code].RegisterCallback(Callback);
-}
+//     return true;
+// }
 
 
-void InputSystem::UnregisterCallback(int Code, int Action, InputCallback const& Callback) noexcept {
-    mInputEvents[Action][Code].UnregisterCallback(Callback);
-}
+// void InputSystem::RegisterCallback(int Code, int Action, InputCallback const& Callback) noexcept {
+//     mInputEvents[Action][Code].RegisterCallback(Callback);
+// }
 
 
-void InputSystem::Process() noexcept {
-    glfwPollEvents();
-}
+// void InputSystem::UnregisterCallback(int Code, int Action, InputCallback const& Callback) noexcept {
+//     mInputEvents[Action][Code].UnregisterCallback(Callback);
+// }
+
+
+// void InputSystem::Process() noexcept {
+//     // glfwPollEvents();
+//     mUpdated = SDL_PollEvent(&mEvent);
+// }
 
 
 } // namespace be

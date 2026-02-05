@@ -8,8 +8,8 @@
 
 #include <memory>
 #include "Graphics/GraphicsContext.h"
-#include "Input/InputSystem.h"
-#include "Scene/Scene.h"
+// #include "Input/InputSystem.h"
+// #include "Scene/Scene.h"
 
 namespace be {
 
@@ -39,7 +39,7 @@ private:
 
 private:
     std::unique_ptr<GraphicsContext> mGraphicsContext;
-    SceneRef mScene;
+    // SceneRef mScene;
 };
 
 

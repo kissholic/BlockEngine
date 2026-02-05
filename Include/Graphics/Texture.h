@@ -6,27 +6,32 @@
 
 #pragma once
 
+#include <SDL3/SDL_rect.h>
+#include <SDL3/SDL_render.h>
 #include <string>
-#include "ImageLoader.h"
+
 
 namespace be {
 
 
 class Texture {
 public:
-    Texture(ImageWrapper& Source);
+    Texture();
     ~Texture();
 
-    unsigned int GetTextureHandle() const noexcept { return mTextureHandle; }
+    operator bool() const noexcept { return !!mTexture; }
+
+    bool Load(SDL_Renderer* renderer, std::string const& path) noexcept;
+
+    void Render(SDL_Renderer* renderer, SDL_FRect* rect, float x, float y) const noexcept;
+
     int GetWidth() const noexcept { return mWidth; }
     int GetHeight() const noexcept { return mHeight; }
-    int GetChannels() const noexcept { return mChannels; }
 
 private:
-    unsigned int mTextureHandle;
+    SDL_Texture* mTexture;
     int mWidth;
     int mHeight;
-    int mChannels;
 };
 
 

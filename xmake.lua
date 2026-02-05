@@ -9,11 +9,9 @@ add_rules("mode.debug", "mode.release")
 
 set_configvar("SHADER_PATH", "$(projectdir)/Shader")
 
-set_configdir("$(buildir)/Config")
+-- set_configdir("$(buildir)/Config")
 add_configfiles("BEConfig.h.in")
-add_includedirs("$(buildir)/Config")
 
 add_includedirs("external/stb_image")
 
-add_includedirs("Include")
 includes("Source")

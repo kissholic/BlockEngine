@@ -6,9 +6,12 @@
 
 #pragma once
 
+#include <SDL3/SDL_render.h>
+#include <SDL3/SDL_surface.h>
+#include <memory>
 #include <string>
 
-struct GLFWwindow;
+struct SDL_Window;
 
 namespace be {
 
@@ -22,16 +25,9 @@ public:
     void Step(double DeltaTime) noexcept;
     bool ShouldExit() noexcept;
 
-    operator GLFWwindow*() const noexcept {
-        return mWindow;
-    }
-
 private:
-    bool GLFWInit() noexcept;
-    void GLFWTerminate() noexcept;
-
-    bool GLInit() noexcept;
-    void GLTerminate() noexcept;
+    bool SDLInit() noexcept;
+    void SDLTerm() noexcept;
 
     bool ImGuiInit() noexcept;
     void ImGuiTerminate() noexcept;
@@ -41,10 +37,13 @@ private:
 
 private:
     std::string mTitle;
-    GLFWwindow* mWindow;
+    struct SDL_Window* mWindow;
     int mWidth;
     int mHeight;
 
+    struct SDL_Renderer* mRenderer;
+    struct SDL_Surface* mSurface;
+    struct SDL_Texture* mTexture;
 };
 
 

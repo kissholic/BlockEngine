@@ -5,15 +5,15 @@
  */
 
 #include "Path.h"
-#include "BEConfig.h"
+// #include "BEConfig.h"
 
 
 namespace be {
 
 
-std::filesystem::path Path::ShaderPath() noexcept {
-    return SHADER_PATH;
-}
+// std::filesystem::path Path::ShaderPath() noexcept {
+//     return SHADER_PATH;
+// }
 
 
 } // namespace be

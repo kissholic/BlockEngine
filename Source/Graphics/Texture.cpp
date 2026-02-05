@@ -5,31 +5,60 @@
  */
 
 #include "Graphics/Texture.h"
-#include "Graphics/ImageLoader.h"
-#include "glad/glad.h"
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_render.h>
+#include <SDL3/SDL_surface.h>
+#include <SDL3_image/SDL_image.h>
+#include "spdlog/spdlog.h"
 
 
 
 namespace be {
 
 
-Texture::Texture(ImageWrapper& Source)
-        : mTextureHandle(0), mWidth(Source.Width), mHeight(Source.Height), mChannels(Source.Channels) {
-    glGenTextures(1, &mTextureHandle);
-    glBindTexture(GL_TEXTURE_2D, mTextureHandle);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mWidth, mHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, Source.Data);
-    glGenerateMipmap(GL_TEXTURE_2D);
-}
+Texture::Texture()
+    : mTexture(nullptr)
+    , mWidth(0)
+    , mHeight(0)
+{}
 
 
 Texture::~Texture() {
-    glDeleteTextures(1, &mTextureHandle);
+    SDL_DestroyTexture(mTexture);
+    mTexture = nullptr;
+}
+
+bool Texture::Load(SDL_Renderer* renderer, std::string const& path) noexcept {
+    if (mTexture) {
+        spdlog::error("Texture has been loaded, path: {}", path);
+        return false;
+    }
+
+    if (SDL_Surface* surface = IMG_Load(path.c_str()); !surface)
+        spdlog::error("Failed to open texture {}, error: {}", path, SDL_GetError());
+    else {
+        if (mTexture = SDL_CreateTextureFromSurface(renderer, surface); !mTexture)
+            spdlog::error("Failed to create texture from surface: {}", SDL_GetError());
+        else {
+            mWidth = surface->w;
+            mHeight = surface->h;
+        }
+
+        SDL_DestroySurface(surface);
+    }
+
+    return !!mTexture;
+}
+
+void Texture::Render(SDL_Renderer* renderer, SDL_FRect* rect, float x, float y) const noexcept {
+    SDL_FRect dst{x, y, static_cast<float>(mWidth), static_cast<float>(mHeight)};
+
+    if (!!rect) {
+        dst.w = rect->w;
+        dst.h = rect->h;
+    }
+
+    SDL_RenderTexture(renderer, mTexture, rect, &dst);
 }
 
 

@@ -7,7 +7,7 @@
 #include "Graphics/ImageLoader.h"
 #include "spdlog/spdlog.h"
 
-#include "stb_image.h"
+// #include "stb_image.h"
 
 namespace be {
 

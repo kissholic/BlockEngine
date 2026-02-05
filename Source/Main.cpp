@@ -6,16 +6,13 @@
 
 
 #include <filesystem>
-#include "glad/glad.h"
-#define GLFW_INCLUDE_OPENGL
-#include "GLFW/glfw3.h"
 #include <spdlog/spdlog.h>
 #include "Graphics/GraphicsContext.h"
-#include "Graphics/ShaderLoader.h"
-#include "Path.h"
+// #include "Graphics/ShaderLoader.h"
+// #include "Path.h"
 #include "Engine.h"
 
-#include "BEConfig.h"
+// #include "BEConfig.h"
 
 
 float vertices[] = {
@@ -35,38 +32,16 @@ int main(int, char**)
 		return -1;
 	}
 
-	unsigned int VBO, VAO;
-	glGenVertexArrays(1, &VAO);
-	glBindVertexArray(VAO);
+	// std::filesystem::path vertexPath = be::Path::ShaderPath() / "DummyVertex.glsl";
+	// std::filesystem::path fragShaderPath = be::Path::ShaderPath() / "DummyFrag.glsl";
+	// auto shaderProgram = be::CreateShaderProgram(vertexPath, fragShaderPath);
 
-	glGenBuffers(1, &VBO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-
-	std::filesystem::path vertexPath = be::Path::ShaderPath() / "DummyVertex.glsl";
-	std::filesystem::path fragShaderPath = be::Path::ShaderPath() / "DummyFrag.glsl";
-	auto shaderProgram = be::CreateShaderProgram(vertexPath, fragShaderPath);
-
-	shaderProgram.Use();
+	// shaderProgram.Use();
 	//glBindVertexArray(VBO);
 
 	while (!be::BlockEngine::GEngine->ShouldExit()) {
-		glClearColor(0.3f, 0.6f, 0.5f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		// shaderProgram.Use();
 
-		shaderProgram.Use();
-
-		// glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		// vertices[0] += 0.001f;
-		// glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-		// spdlog::error("loop log");
-		
-		glBindVertexArray(VAO);
-		glDrawArrays(GL_TRIANGLES, 0, 3);
 		be::BlockEngine::GEngine->Step(1.0 / 60.0);
 	}
 

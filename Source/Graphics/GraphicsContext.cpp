@@ -5,18 +5,25 @@
  */
 
 
-#include <vector>
-
-#define GLFW_INCLUDE_OPENGL
-#include "GLFW/glfw3.h"
-#include "glad/glad.h"
 #include "spdlog/spdlog.h"
-
+// #include "bgfx/bgfx.h"
+// #include "bgfx/platform.h"
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_surface.h"
+#include "SDL3/SDL_main.h"
 #include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_init.h>
+#include <SDL3/SDL_keycode.h>
+#include <SDL3/SDL_pixels.h>
+#include <SDL3/SDL_render.h>
+#include <SDL3/SDL_video.h>
+
+#include "Input/InputSystem.h"
 
 #include "Graphics/GraphicsContext.h"
+#include "Graphics/Texture.h"
 
 
 namespace be {
@@ -32,141 +39,128 @@ GraphicsContext::GraphicsContext(int Width, int Height, const std::string& Title
 
 
 GraphicsContext::~GraphicsContext() {
-    ImGuiTerminate();
-    GLTerminate();
-    GLFWTerminate();
+    // ImGuiTerminate();
+    SDLTerm();
 }
 
 
 bool GraphicsContext::Init() noexcept {
-    if (!GLFWInit()) {
-        return false;
-    }
-
-    if (!GLInit()) {
-        return false;
-    }
-    
-    if (!ImGuiInit()) {
-        return false;
-    }
+    if (!SDLInit()) return false;
+    // if (!ImGuiInit()) return false;
 
     return true;
 }
 
+static bool quit = false;
+Texture gHello;
 
-void GraphicsContext::Step(double DeltaTime) noexcept {
-    ImGuiStepPrev();
-    ImGuiStep(DeltaTime);
-    ImGuiStepPost();
+void load(SDL_Renderer* renderer) {
+    std::string path{"/home/kisuhorikka/Source/BlockEngine/Image/hello.png"};
+    if (gHello.Load(renderer, path.c_str()); !gHello) {
+        spdlog::error("Failed to open");
+        return;
+    }
+}
 
-    glfwSwapBuffers(mWindow);
+void GraphicsContext::Step(double) noexcept {
+    if (InputSystem::Get().Updated()) {
+        if (InputSystem::Get().Is(SDL_EVENT_QUIT)) {
+            spdlog::info("quit event");
+            quit = true;
+            return;
+        }
+        if (InputSystem::Get().Press(SDLK_ESCAPE)) {
+            spdlog::info("Press escape");
+            quit = true;
+            return;
+        }
+    }
+
+    // SDL_LockTexture(mTexture, nullptr, (void**)&pix, &pitch);
+    // SDL_FillSurfaceRect(mSurface, nullptr, SDL_MapSurfaceRGB(mSurface, 0xFF, 0XFF, 0xFF));
+    // SDL_BlitSurface(gHello, nullptr, mSurface, nullptr);
+    SDL_SetRenderDrawColor(mRenderer, 0x00, 0xFF, 0x00, 0xFF);
+    SDL_RenderClear(mRenderer);
+    // SDL_UpdateWindowSurface(mWindow);
+    gHello.Render(mRenderer, nullptr, mWidth / 2, mHeight / 2);
+    SDL_RenderPresent(mRenderer);
+
+    // SDL_UnlockTexture(mTexture);
+    // SDL_RenderTexture(mRenderer, mTexture, nullptr, nullptr);
+    // SDL_RenderPresent(mRenderer);
+    SDL_Delay(10);
+
+
+
+    // ImGuiStepPrev();
+    // ImGuiStep(DeltaTime);
+    // ImGuiStepPost();
 }
 
 
 bool GraphicsContext::ShouldExit() noexcept {
-    return glfwWindowShouldClose(mWindow);
+    return quit;
+
 }
 
-
-bool GraphicsContext::GLFWInit() noexcept {
-    if (!glfwInit()) {
-        spdlog::error("Failed to initialize GLFW");
+bool GraphicsContext::SDLInit() noexcept {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+        spdlog::error("Failed to initialize SDL, error: {}", SDL_GetError());
         return false;
     }
 
-    // glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-
-    mWindow = glfwCreateWindow(mWidth, mHeight, mTitle.c_str(), nullptr, nullptr);
+    mWindow = SDL_CreateWindow(mTitle.c_str(), mWidth, mHeight, 0);
     if (!mWindow) {
-        spdlog::error("Failed to create GLFW window");
+        spdlog::error("Failed to create SDL window, error: {}", SDL_GetError());
         return false;
     }
 
-    glfwMakeContextCurrent(mWindow);
-    glfwSetWindowUserPointer(mWindow, this);
+    mRenderer = SDL_CreateRenderer(mWindow, nullptr);
+    if (!mRenderer) {
+        spdlog::error("Failed to create SDL renderer, error: {}", SDL_GetError());
+        return false;
+    }
 
-    // Set error callback
-    glfwSetErrorCallback([](int Error, const char* Description) {
-        spdlog::error("GLFW Error {}: {}", Error, Description);
-    });
+    mSurface = SDL_GetWindowSurface(mWindow);
 
-    // Set keyboard input callback
-    glfwSetKeyCallback(mWindow, [](GLFWwindow* Window, int Key, [[maybe_unused]] int Scancode, int Action, [[maybe_unused]] int Mods) {
-        if (Key == GLFW_KEY_ESCAPE && Action == GLFW_PRESS) {
-            glfwSetWindowShouldClose(Window, GLFW_TRUE);
-        }
-    });
+    // mTexture = SDL_CreateTexture(mRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, mWidth, mHeight);
+    // if (!mTexture) {
+    //     spdlog::error("Failed to create SDL texture, error: {}", SDL_GetError());
+    //     return false;
+    // }
 
-    glfwSetFramebufferSizeCallback(mWindow, [](GLFWwindow* Window, int Width, int Height) {
-        auto* Context = reinterpret_cast<GraphicsContext*>(glfwGetWindowUserPointer(Window));
-        Context->mWidth = Width;
-        Context->mHeight = Height;
-        glViewport(0, 0, Context->mWidth, Context->mHeight);
-    });
+    load(mRenderer);
 
     return true;
 }
 
 
-void GraphicsContext::GLFWTerminate() noexcept {
-    glfwDestroyWindow(mWindow);
-    glfwTerminate();
+void GraphicsContext::SDLTerm() noexcept {
+    // SDL_DestroyTexture(mTexture);
+    // SDL_DestroyRenderer(mRenderer);
+    SDL_DestroyWindow(mWindow);
+    SDL_Quit();
 }
-
-
-bool GraphicsContext::GLInit() noexcept {
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        spdlog::error("Failed to initialize GLAD");
-        return false;
-    }
-
-    glViewport(0, 0, mWidth, mHeight);
-
-    return true;
-}
-
-void GraphicsContext::GLTerminate() noexcept {
-}
-
 
 bool GraphicsContext::ImGuiInit() noexcept {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
-    ImGui::StyleColorsDark();
-
-	ImGui_ImplGlfw_InitForOpenGL(glfwGetCurrentContext(), true);
-	ImGui_ImplOpenGL3_Init();
 
 	return true;
 }
 
 
 void GraphicsContext::ImGuiTerminate() noexcept {
-	ImGui_ImplOpenGL3_Shutdown();
-	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 }
 
 
 void GraphicsContext::ImGuiStepPrev() noexcept {
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 }
 
 
-void GraphicsContext::ImGuiStep(double DeltaTime) noexcept {
+void GraphicsContext::ImGuiStep(double) noexcept {
 	ImGui::Begin("Config Menu");
 
     ImGui::Text("FPS: %.2f", ImGui::GetIO().Framerate);
@@ -180,7 +174,7 @@ void GraphicsContext::ImGuiStep(double DeltaTime) noexcept {
 
 void GraphicsContext::ImGuiStepPost() noexcept {
 	ImGui::Render();
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	// ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 

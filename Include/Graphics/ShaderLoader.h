@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <glad/glad.h>
 #include "spdlog/spdlog.h"
 #include <filesystem>
 #include <string>
