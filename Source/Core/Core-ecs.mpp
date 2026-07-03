@@ -1,0 +1,271 @@
+export module be.core:ecs;
+
+import std;
+
+export namespace be::ecs {
+
+struct Ent
+{
+    std::uint32_t i = 0, g = 0;
+    auto operator<=>(const Ent&) const = default;
+    explicit operator bool() const { return i || g; }
+};
+
+inline constexpr Ent Null{};
+
+template <typename T>
+concept Comp = std::semiregular<T> && std::is_move_constructible_v<T>;
+
+namespace detail {
+
+constexpr std::uint32_t INVALID = ~0u;
+
+template <Comp T>
+class ComponentPool
+{
+    std::vector<std::uint32_t> mSparse;
+    std::vector<std::uint32_t> mEntities;
+    std::vector<T>             mDense;
+
+public:
+    T& Add(std::uint32_t ei, T c)
+    {
+        if (ei >= mSparse.size())
+        {
+            mSparse.resize(ei + 256, INVALID);
+        }
+        auto& slot = mSparse[ei];
+        if (slot != INVALID)
+        {
+            mDense[slot] = std::move(c);
+            return mDense[slot];
+        }
+        slot = static_cast<std::uint32_t>(mDense.size());
+        mEntities.push_back(ei);
+        mDense.push_back(std::move(c));
+        return mDense.back();
+    }
+
+    void Remove(std::uint32_t ei)
+    {
+        if (ei >= mSparse.size()) return;
+        auto& slot = mSparse[ei];
+        if (slot == INVALID) return;
+        std::uint32_t last = static_cast<std::uint32_t>(mDense.size() - 1);
+        if (slot != last)
+        {
+            mDense[slot] = std::move(mDense[last]);
+            mEntities[slot] = mEntities[last];
+            mSparse[mEntities[slot]] = slot;
+        }
+        mDense.pop_back();
+        mEntities.pop_back();
+        mSparse[ei] = INVALID;
+    }
+
+    T* Get(std::uint32_t ei)
+    {
+        if (ei >= mSparse.size()) return nullptr;
+        std::uint32_t slot = mSparse[ei];
+        return slot != INVALID ? &mDense[slot] : nullptr;
+    }
+
+    const T* Get(std::uint32_t ei) const
+    {
+        if (ei >= mSparse.size()) return nullptr;
+        std::uint32_t slot = mSparse[ei];
+        return slot != INVALID ? &mDense[slot] : nullptr;
+    }
+
+    bool Has(std::uint32_t ei) const
+    {
+        return ei < mSparse.size() && mSparse[ei] != INVALID;
+    }
+
+    std::uint32_t Size() const { return static_cast<std::uint32_t>(mDense.size()); }
+
+    std::vector<std::uint32_t>& Entities()    { return mEntities; }
+    const std::vector<std::uint32_t>& Entities() const { return mEntities; }
+    std::vector<T>& Components()    { return mDense; }
+    const std::vector<T>& Components() const { return mDense; }
+};
+
+struct IPool
+{
+    virtual ~IPool() = default;
+    virtual void Remove(std::uint32_t ei) = 0;
+};
+
+template <Comp T>
+class TypedPool : public IPool
+{
+    ComponentPool<T> mPool;
+public:
+    ComponentPool<T>& Get()                 { return mPool; }
+    const ComponentPool<T>& Get() const     { return mPool; }
+    void Remove(std::uint32_t ei) override  { mPool.Remove(ei); }
+};
+
+} // namespace detail
+
+class Registry
+{
+    std::vector<std::uint32_t> mGen;
+    std::vector<std::uint32_t> mFree;
+    std::unordered_map<std::type_index, std::unique_ptr<detail::IPool>> mPools;
+
+public:
+    Ent Create()
+    {
+        std::uint32_t i;
+        if (!mFree.empty())
+        {
+            i = mFree.back();
+            mFree.pop_back();
+        }
+        else
+        {
+            i = static_cast<std::uint32_t>(mGen.size());
+            mGen.push_back(1);
+        }
+        return {i, mGen[i]};
+    }
+
+    void Destroy(Ent e)
+    {
+        if (!Valid(e)) return;
+        for (auto& [_, p] : mPools) { p->Remove(e.i); }
+        mGen[e.i]++;
+        mFree.push_back(e.i);
+    }
+
+    bool Valid(Ent e) const
+    {
+        return e.i < mGen.size() && mGen[e.i] == e.g && e.g;
+    }
+
+    template <Comp T, typename... Args>
+        requires std::constructible_from<T, Args...>
+    T& Add(Ent e, Args&&... args)
+    {
+        return Typed<T>().Get().Add(e.i, T(std::forward<Args>(args)...));
+    }
+
+    template <Comp T>
+    T& Get(Ent e) { return *Pool<T>().Get(e.i); }
+
+    template <Comp T>
+    const T& Get(Ent e) const { return *Pool<T>().Get(e.i); }
+
+    template <Comp T>
+    T* Try(Ent e) { return Pool<T>().Get(e.i); }
+
+    template <Comp T>
+    bool Has(Ent e) const { return Pool<T>().Has(e.i); }
+
+    template <Comp T>
+    void Remove(Ent e) { Pool<T>().Remove(e.i); }
+
+    std::uint32_t Generation(std::uint32_t i) const
+    {
+        return i < mGen.size() ? mGen[i] : 0;
+    }
+
+    template <typename... C, typename F>
+    void Each(F&& f)
+    {
+        if constexpr (sizeof...(C) == 1)
+        {
+            ForEach1<C...>(std::forward<F>(f));
+        }
+        else if constexpr (sizeof...(C) == 2)
+        {
+            ForEach2<C...>(std::forward<F>(f));
+        }
+        else if constexpr (sizeof...(C) == 3)
+        {
+            ForEach3<C...>(std::forward<F>(f));
+        }
+    }
+
+private:
+    template <Comp T>
+    detail::ComponentPool<T>& Pool() { return Typed<T>().Get(); }
+
+    template <Comp T>
+    const detail::ComponentPool<T>& Pool() const { return CTPool<T>().Get(); }
+
+    template <Comp T>
+    detail::TypedPool<T>& Typed()
+    {
+        auto tid = std::type_index(typeid(T));
+        auto it = mPools.find(tid);
+        if (it == mPools.end())
+        {
+            auto p = std::make_unique<detail::TypedPool<T>>();
+            auto* r = p.get();
+            mPools[tid] = std::move(p);
+            return *r;
+        }
+        return static_cast<detail::TypedPool<T>&>(*it->second);
+    }
+
+    template <Comp T>
+    const detail::TypedPool<T>& CTPool() const
+    {
+        return static_cast<const detail::TypedPool<T>&>(
+            *mPools.at(std::type_index(typeid(T))));
+    }
+
+    template <Comp T, typename F>
+    void ForEach1(F&& f)
+    {
+        auto& pool = Pool<T>();
+        auto& ents = pool.Entities();
+        auto& comps = pool.Components();
+        for (std::uint32_t i = 0; i < pool.Size(); ++i)
+        {
+            Ent e{ents[i], mGen[ents[i]]};
+            f(e, comps[i]);
+        }
+    }
+
+    template <Comp T1, Comp T2, typename F>
+    void ForEach2(F&& f)
+    {
+        auto& p1 = Pool<T1>();
+        auto& p2 = Pool<T2>();
+        auto& ents = p1.Entities();
+        auto& c1 = p1.Components();
+        for (std::uint32_t i = 0; i < p1.Size(); ++i)
+        {
+            std::uint32_t ei = ents[i];
+            auto* c2 = p2.Get(ei);
+            if (!c2) continue;
+            Ent e{ei, mGen[ei]};
+            f(e, c1[i], *c2);
+        }
+    }
+
+    template <Comp T1, Comp T2, Comp T3, typename F>
+    void ForEach3(F&& f)
+    {
+        auto& p1 = Pool<T1>();
+        auto& p2 = Pool<T2>();
+        auto& p3 = Pool<T3>();
+        auto& ents = p1.Entities();
+        auto& c1 = p1.Components();
+        for (std::uint32_t i = 0; i < p1.Size(); ++i)
+        {
+            std::uint32_t ei = ents[i];
+            auto* c2 = p2.Get(ei);
+            if (!c2) continue;
+            auto* c3 = p3.Get(ei);
+            if (!c3) continue;
+            Ent e{ei, mGen[ei]};
+            f(e, c1[i], *c2, *c3);
+        }
+    }
+};
+
+} // namespace be::ecs

@@ -1,0 +1,6 @@
+target("Scene")
+    set_kind("static")
+    add_deps("Core", "Platform", "Render", "Input", "UI")
+    add_packages("spdlog", "imgui", "glm")
+    add_files("Scene.mpp", {public = true})
+    add_files("Level.mpp", {public = true})

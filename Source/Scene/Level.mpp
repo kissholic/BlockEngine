@@ -1,0 +1,40 @@
+export module be.scene:level;
+
+import std;
+import be.core;
+
+export namespace be {
+
+class Scene;
+
+class Level
+{
+public:
+    explicit Level(std::string name);
+
+    virtual ~Level() = default;
+
+    const std::string& GetName() const { return mName; }
+    bool IsActive() const { return mActive; }
+    void SetActive(bool active) { mActive = active; }
+
+    virtual void OnLoad() {}
+    virtual void OnUnload() {}
+    virtual void Update(float dt) {}
+
+protected:
+    ecs::Ent CreateEntity();
+    void DestroyAllEntities();
+    ecs::Registry& GetOwnerRegistry();
+    Scene* GetOwnerScene();
+
+private:
+    friend class Scene;
+
+    std::string mName;
+    bool mActive = true;
+    std::vector<ecs::Ent> mEntities;
+    Scene* mOwnerScene = nullptr;
+};
+
+} // namespace be

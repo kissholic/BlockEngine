@@ -1,3 +1,9 @@
 [submodule "external/stb_image"]
 	path = external/stb_image
 	url = https://github.com/nothings/stb.git
+[submodule "external/sokol"]
+	path = external/sokol
+	url = https://github.com/floooh/sokol.git
+[submodule "external/soloud"]
+	path = external/soloud
+	url = https://github.com/jarikomppa/soloud.git

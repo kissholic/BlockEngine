@@ -1,0 +1,103 @@
+module;
+#include "soloud.h"
+#include "soloud_wav.h"
+#include "spdlog/spdlog.h"
+
+export module be.audio;
+
+import std;
+import be.core;
+
+export namespace be {
+
+class AudioSystem
+{
+public:
+    AudioSystem()
+    {
+        mResult = mSoloud.init();
+        if (mResult != SoLoud::SOLOUD_ERRORS::SO_NO_ERROR)
+        {
+            spdlog::error("AudioSystem: SoLoud init failed with code {}", mResult);
+        }
+        else
+        {
+            mInitialized = true;
+            spdlog::info("AudioSystem: initialized");
+        }
+    }
+
+    ~AudioSystem()
+    {
+        Shutdown();
+    }
+
+    AudioSystem(const AudioSystem&) = delete;
+    AudioSystem& operator=(const AudioSystem&) = delete;
+
+    bool IsInitialized() const { return mInitialized; }
+
+    SoLoud::Wav* LoadWav(const char* path)
+    {
+        if (!mInitialized) return nullptr;
+
+        auto wav = std::make_unique<SoLoud::Wav>();
+        auto result = wav->load(path);
+        if (result != SoLoud::SOLOUD_ERRORS::SO_NO_ERROR)
+        {
+            spdlog::error("AudioSystem: failed to load '{}' (code {})", path, result);
+            return nullptr;
+        }
+
+        auto* ptr = wav.get();
+        mWavs.push_back(std::move(wav));
+        return ptr;
+    }
+
+    SoLoud::handle Play(SoLoud::Wav* wav, float volume = 1.0f, float pan = 0.0f, bool paused = false)
+    {
+        if (!mInitialized || !wav) return 0;
+        return mSoloud.play(*wav, volume, pan, paused);
+    }
+
+    void Stop(SoLoud::handle h)
+    {
+        if (mInitialized) mSoloud.stop(h);
+    }
+
+    void StopAll()
+    {
+        if (mInitialized) mSoloud.stopAll();
+    }
+
+    void SetGlobalVolume(float v)
+    {
+        if (mInitialized) mSoloud.setGlobalVolume(v);
+    }
+
+    float GetGlobalVolume() const
+    {
+        return mInitialized ? mSoloud.getGlobalVolume() : 0.0f;
+    }
+
+    SoLoud::Soloud& GetSoloud() { return mSoloud; }
+
+    void Shutdown()
+    {
+        if (mInitialized)
+        {
+            mSoloud.deinit();
+            mInitialized = false;
+            spdlog::info("AudioSystem: shutdown");
+        }
+        mWavs.clear();
+    }
+
+private:
+    SoLoud::Soloud mSoloud;
+    std::vector<std::unique_ptr<SoLoud::Wav>> mWavs;
+    int mResult = 0;
+    bool mInitialized = false;
+};
+
+} // namespace be

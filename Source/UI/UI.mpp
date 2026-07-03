@@ -1,0 +1,42 @@
+module;
+#include "sokol_app.h"
+#include "sokol_gfx.h"
+#include "imgui.h"
+#include "util/sokol_imgui.h"
+
+export module be.ui;
+
+import be.core;
+
+export namespace be {
+
+class UISystem
+{
+public:
+    void Init()
+    {
+        mInitialized = true;
+    }
+
+    void Shutdown()
+    {
+        mInitialized = false;
+    }
+
+    void BeginFrame()
+    {
+        if (!mInitialized) return;
+    }
+
+    void EndFrame()
+    {
+        if (!mInitialized) return;
+    }
+
+    bool IsInitialized() const { return mInitialized; }
+
+private:
+    bool mInitialized = false;
+};
+
+} // namespace be

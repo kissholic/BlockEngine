@@ -1,0 +1,5 @@
+target("Editor")
+    set_kind("static")
+    add_deps("Core", "Platform", "Render")
+    add_packages("imgui")
+    add_files("Editor.mpp", {public = true})

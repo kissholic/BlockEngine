@@ -1,0 +1,6 @@
+target("Core")
+    set_kind("static")
+    add_packages("glm")
+    add_files("Core.mpp", {public = true})
+    add_files("Core-math.mpp", {public = true})
+    add_files("Core-ecs.mpp", {public = true})

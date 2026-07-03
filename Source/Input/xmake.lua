@@ -1,5 +1,4 @@
-
 target("Input")
     set_kind("static")
-    add_files("*.cpp")
-    add_packages("spdlog", "glfw")
+    add_deps("Core", "Platform")
+    add_files("Input.mpp", {public = true})

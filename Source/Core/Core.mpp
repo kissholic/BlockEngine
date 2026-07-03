@@ -1,0 +1,24 @@
+export module be.core;
+
+import std;
+
+export import :math;
+export import :ecs;
+
+export namespace be {
+
+template <typename... Args>
+class Event
+{
+    std::vector<std::function<void(Args...)>> mCallbacks;
+public:
+    template <typename F>
+    void Subscribe(F&& f) { mCallbacks.push_back(std::forward<F>(f)); }
+
+    void Invoke(Args... args) const
+    {
+        for (auto& cb : mCallbacks) { cb(args...); }
+    }
+};
+
+} // namespace be

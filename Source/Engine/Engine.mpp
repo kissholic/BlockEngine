@@ -1,0 +1,183 @@
+module;
+#include <functional>
+#include <memory>
+#include <thread>
+#include <chrono>
+#include <atomic>
+#include "sokol_app.h"
+#include "spdlog/spdlog.h"
+
+export module be.engine;
+
+import be.core;
+import be.platform;
+import be.render;
+import be.input;
+import be.audio;
+import be.ui;
+import be.scene;
+
+export namespace be {
+
+class Engine : public IAppDelegate
+{
+public:
+    using EditorDrawFn = std::function<void(const FrameSnapshot::DebugUI*)>;
+    using EditorInitFn = std::function<void()>;
+
+    inline static Engine* sInstance = nullptr;
+
+    Engine() { sInstance = this; }
+
+    void SetEditorInitCallback(EditorInitFn fn)
+    {
+        mEditorInitCallback = std::move(fn);
+    }
+
+    void SetEditorDrawCallback(EditorDrawFn fn)
+    {
+        mEditorDrawCallback = std::move(fn);
+    }
+
+    RenderBridge& GetBridge() { return mBridge; }
+
+    void Run(const SokolApp::Desc& desc)
+    {
+        SokolApp app;
+        app.Init(this, desc);
+    }
+
+    void LoadScene(std::unique_ptr<Scene> scene)
+    {
+        if (mCurrentScene)
+        {
+            mCurrentScene->OnExit();
+        }
+        mCurrentScene = std::move(scene);
+        if (mCurrentScene)
+        {
+            mCurrentScene->OnEnter();
+        }
+    }
+
+    Scene* GetCurrentScene() { return mCurrentScene.get(); }
+
+    void OnAppInit() override
+    {
+        spdlog::info("Engine::OnAppInit");
+        mRender.Init();
+        mUI.Init();
+
+        LoadScene(std::make_unique<Scene>());
+
+        if (mEditorInitCallback) { mEditorInitCallback(); }
+
+        mRunning = true;
+        mGameThread = std::jthread(&Engine::GameLoop, this);
+    }
+
+    void OnAppFrame() override
+    {
+        auto& app = SokolApp::Instance();
+
+        auto snapshot = mBridge.Acquire();
+
+        if (snapshot)
+        {
+            Camera camera;
+            camera.fovY = snapshot->cameraFovY;
+            camera.nearPlane = snapshot->cameraNearPlane;
+            camera.farPlane = snapshot->cameraFarPlane;
+            camera.position = snapshot->cameraPosition;
+            camera.target = snapshot->cameraTarget;
+
+            mRender.BeginFrame(app.AspectRatio(), camera);
+
+            for (auto& cmd : snapshot->commands)
+            {
+                mRender.DrawSolidCube(cmd.position, cmd.halfExtents, cmd.color);
+            }
+
+            for (auto& wire : snapshot->wireCommands)
+            {
+                mRender.DrawWireCube(wire.position, wire.halfExtents, wire.color);
+            }
+
+            mRender.DrawGroundGrid(20.0f, 1.0f, {0.3f, 0.3f, 0.3f});
+
+            mRender.EndFrame();
+
+            auto* debug = &snapshot->debug;
+            if (mEditorDrawCallback) { mEditorDrawCallback(debug); }
+
+            if (mCurrentScene)
+            {
+                mCurrentScene->DrawDebugUI(app, *snapshot);
+            }
+        }
+    }
+
+    void OnAppCleanup() override
+    {
+        mRunning = false;
+        if (mGameThread.joinable())
+        {
+            mGameThread.join();
+        }
+
+        spdlog::info("Engine::OnAppCleanup");
+        mAudio.Shutdown();
+        mRender.Shutdown();
+        mUI.Shutdown();
+    }
+
+    void OnAppEvent(const sapp_event* ev) override
+    {
+        mInput.HandleEvent(ev);
+    }
+
+private:
+    std::unique_ptr<Scene> mCurrentScene;
+    RenderSystem mRender;
+    InputSystem mInput;
+    AudioSystem mAudio;
+    UISystem mUI;
+
+    RenderBridge mBridge;
+    std::jthread mGameThread;
+    std::atomic<bool> mRunning{false};
+
+    EditorDrawFn mEditorDrawCallback;
+    EditorInitFn mEditorInitCallback;
+
+    void GameLoop()
+    {
+        using Clock = std::chrono::steady_clock;
+        auto prevTime = Clock::now();
+        constexpr float fixedDt = 1.0f / 60.0f;
+        constexpr auto fixedDtNs =
+            std::chrono::duration_cast<Clock::duration>(
+                std::chrono::duration<float>(fixedDt));
+
+        while (mRunning)
+        {
+            auto now = Clock::now();
+            if (now - prevTime >= fixedDtNs)
+            {
+                prevTime = now;
+
+                if (mCurrentScene)
+                {
+                    mCurrentScene->Update(fixedDt, mInput);
+                    mCurrentScene->CollectAndPublish(mBridge);
+                }
+            }
+            else
+            {
+                std::this_thread::sleep_for(fixedDtNs / 16);
+            }
+        }
+    }
+};
+
+} // namespace be

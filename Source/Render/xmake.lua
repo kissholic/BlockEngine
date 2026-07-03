@@ -1,0 +1,5 @@
+target("Render")
+    set_kind("static")
+    add_deps("Core", "Platform")
+    add_packages("glm")
+    add_files("Render.mpp", {public = true})

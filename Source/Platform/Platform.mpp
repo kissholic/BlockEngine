@@ -1,0 +1,143 @@
+module;
+#include "sokol_app.h"
+#include "sokol_gfx.h"
+#include "stb_image.h"
+
+export module be.platform;
+
+import std;
+import be.core;
+
+export namespace be {
+
+struct IAppDelegate
+{
+    virtual ~IAppDelegate() = default;
+    virtual void OnAppInit() = 0;
+    virtual void OnAppFrame() = 0;
+    virtual void OnAppCleanup() = 0;
+    virtual void OnAppEvent(const sapp_event* ev) = 0;
+};
+
+class SokolApp
+{
+public:
+    struct Desc
+    {
+        std::uint32_t width = 1280;
+        std::uint32_t height = 720;
+        const char* title = "BlockEngine";
+        bool enableVsync = true;
+        std::int32_t sampleCount = 1;
+    };
+
+    SokolApp() = default;
+    ~SokolApp() = default;
+    SokolApp(const SokolApp&) = delete;
+    SokolApp& operator=(const SokolApp&) = delete;
+
+    void Init(IAppDelegate* delegate, const Desc& desc);
+
+    bool ShouldQuit() const { return mShouldQuit; }
+    std::uint32_t WindowWidth() const { return mWidth; }
+    std::uint32_t WindowHeight() const { return mHeight; }
+    float AspectRatio() const { return static_cast<float>(mWidth) / static_cast<float>(mHeight); }
+    double DeltaTime() const { return mDeltaTime; }
+    std::uint64_t FrameCount() const { return mFrameCount; }
+
+    void BeginFrame();
+    void EndFrame();
+
+    const sapp_event* LastEvent() const { return mLastEvent; }
+    static SokolApp& Instance() { return *sInstance; }
+
+private:
+    static SokolApp* sInstance;
+
+    IAppDelegate* mDelegate = nullptr;
+    std::uint32_t mWidth = 1280;
+    std::uint32_t mHeight = 720;
+    bool mShouldQuit = false;
+    double mDeltaTime = 0.0;
+    std::uint64_t mFrameCount = 0;
+    std::uint64_t mLastTime = 0;
+    const sapp_event* mLastEvent = nullptr;
+
+    static void InitCallback();
+    static void FrameCallback();
+    static void CleanupCallback();
+    static void EventCallback(const sapp_event* ev);
+};
+
+struct ImageWrapper
+{
+    sg_image image{};
+    int width = 0;
+    int height = 0;
+
+    ~ImageWrapper()
+    {
+        if (image.id != SG_INVALID_ID)
+        {
+            sg_destroy_image(image);
+        }
+    }
+
+    ImageWrapper() = default;
+
+    ImageWrapper(sg_image img, int w, int h)
+        : image(img), width(w), height(h) {}
+
+    ImageWrapper(const ImageWrapper&) = delete;
+    ImageWrapper& operator=(const ImageWrapper&) = delete;
+
+    ImageWrapper(ImageWrapper&& other) noexcept
+        : image(other.image), width(other.width), height(other.height)
+    {
+        other.image = {SG_INVALID_ID};
+        other.width = 0;
+        other.height = 0;
+    }
+
+    ImageWrapper& operator=(ImageWrapper&& other) noexcept
+    {
+        if (this != &other)
+        {
+            if (image.id != SG_INVALID_ID)
+            {
+                sg_destroy_image(image);
+            }
+            image = other.image;
+            width = other.width;
+            height = other.height;
+            other.image = {SG_INVALID_ID};
+            other.width = 0;
+            other.height = 0;
+        }
+        return *this;
+    }
+};
+
+inline ImageWrapper LoadImage(const char* path)
+{
+    int w = 0, h = 0, ch = 0;
+    unsigned char* data = stbi_load(path, &w, &h, &ch, 4);
+    if (!data)
+    {
+        return {};
+    }
+
+    sg_image_desc desc = {};
+    desc.width = w;
+    desc.height = h;
+    desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    desc.data.mip_levels[0].ptr = data;
+    desc.data.mip_levels[0].size = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
+
+    sg_image img = sg_make_image(&desc);
+    stbi_image_free(data);
+
+    return {img, w, h};
+}
+
+} // namespace be

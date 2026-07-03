@@ -1,0 +1,213 @@
+module;
+#include <cmath>
+#include <mutex>
+#include "sokol_gfx.h"
+#include "sokol_gl.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+export module be.render;
+
+import be.core;
+import be.platform;
+
+export namespace be {
+
+struct Transform
+{
+    Vec3 position{};
+    Vec3 rotation{};
+    Vec3 scale{1.0f, 1.0f, 1.0f};
+};
+
+struct Camera
+{
+    Vec3 position{0, 5, 10};
+    Vec3 target{0, 0, 0};
+    float fovY = glm::radians(45.0f);
+    float nearPlane = 0.1f;
+    float farPlane = 100.0f;
+};
+
+struct MeshRenderer
+{
+    bool visible = true;
+    Vec3 color{1, 1, 1};
+    Vec3 halfExtents{0.5f, 0.5f, 0.5f};
+};
+
+struct RenderCommand
+{
+    Vec3 position;
+    Vec3 halfExtents;
+    Vec3 color;
+};
+
+struct FrameSnapshot
+{
+    std::vector<RenderCommand> commands;
+    std::vector<RenderCommand> wireCommands;
+    std::vector<std::tuple<Vec3, Vec3, Vec3>> groundGrids;
+    float cameraFovY = glm::radians(45.0f);
+    float cameraNearPlane = 0.1f;
+    float cameraFarPlane = 100.0f;
+    Vec3 cameraPosition{0, 5, 10};
+    Vec3 cameraTarget{0, 0, 0};
+
+    struct DebugUI
+    {
+        std::string sceneName;
+        int levelCount = 0;
+        float fps = 0;
+        float timeSinceStart = 0;
+        int entityCount = 0;
+        ecs::Ent selectedEntity = ecs::Null;
+        Transform selectedTransform;
+        MeshRenderer selectedRenderer;
+        float selectedVelocityX = 0;
+        float selectedVelocityY = 0;
+        float selectedVelocityZ = 0;
+        bool hasVelocity = false;
+    } debug;
+};
+
+class RenderBridge
+{
+    std::mutex mMutex;
+    std::shared_ptr<const FrameSnapshot> mCurrent;
+
+public:
+    void Publish(std::shared_ptr<FrameSnapshot> snapshot)
+    {
+        std::lock_guard lock(mMutex);
+        mCurrent = std::move(snapshot);
+    }
+
+    std::shared_ptr<const FrameSnapshot> Acquire()
+    {
+        std::lock_guard lock(mMutex);
+        return mCurrent;
+    }
+};
+
+class RenderSystem
+{
+public:
+    void Init()
+    {
+        mInitialized = true;
+    }
+
+    void Shutdown()
+    {
+        mInitialized = false;
+    }
+
+    void BeginFrame(float aspect, const Camera& camera)
+    {
+        if (!mInitialized) return;
+
+        auto proj = glm::perspective(camera.fovY, aspect, camera.nearPlane, camera.farPlane);
+        auto view = glm::lookAt(camera.position, camera.target, Vec3{0, 1, 0});
+
+        sgl_defaults();
+        sgl_matrix_mode_projection();
+        sgl_load_matrix(glm::value_ptr(proj));
+
+        sgl_matrix_mode_modelview();
+        sgl_load_matrix(glm::value_ptr(view));
+    }
+
+    void EndFrame()
+    {
+    }
+
+    void DrawSolidCube(Vec3 center, Vec3 halfExtents, Vec3 color)
+    {
+        if (!mInitialized) return;
+
+        float x = center.x;
+        float y = center.y;
+        float z = center.z;
+        float hx = halfExtents.x;
+        float hy = halfExtents.y;
+        float hz = halfExtents.z;
+
+        sgl_begin_triangles();
+        sgl_c3f(color.x, color.y, color.z);
+
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z + hz);
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y + hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz);
+
+        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz);
+        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
+
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z - hz);
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
+
+        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz);
+        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x + hx, y - hy, z + hz);
+
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y - hy, z + hz); sgl_v3f(x - hx, y - hy, z + hz);
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
+
+        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz);
+        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
+
+        sgl_end();
+    }
+
+    void DrawWireCube(Vec3 center, Vec3 halfExtents, Vec3 color)
+    {
+        if (!mInitialized) return;
+
+        float x = center.x;
+        float y = center.y;
+        float z = center.z;
+        float hx = halfExtents.x;
+        float hy = halfExtents.y;
+        float hz = halfExtents.z;
+
+        sgl_begin_lines();
+        sgl_c3f(color.x, color.y, color.z);
+
+        sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz);
+        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z + hz);
+        sgl_v3f(x + hx, y - hy, z + hz); sgl_v3f(x - hx, y - hy, z + hz);
+        sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y - hy, z - hz);
+
+        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
+        sgl_v3f(x + hx, y + hy, z - hz); sgl_v3f(x + hx, y + hy, z + hz);
+        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
+        sgl_v3f(x - hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z - hz);
+
+        sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x - hx, y + hy, z - hz);
+        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
+        sgl_v3f(x + hx, y - hy, z + hz); sgl_v3f(x + hx, y + hy, z + hz);
+        sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
+
+        sgl_end();
+    }
+
+    void DrawGroundGrid(float size, float step, Vec3 color)
+    {
+        if (!mInitialized) return;
+
+        sgl_begin_lines();
+        sgl_c3f(color.x, color.y, color.z);
+
+        for (float i = -size; i <= size; i += step)
+        {
+            sgl_v3f(i, 0, -size); sgl_v3f(i, 0, size);
+            sgl_v3f(-size, 0, i); sgl_v3f(size, 0, i);
+        }
+
+        sgl_end();
+    }
+
+private:
+    bool mInitialized = false;
+};
+
+} // namespace be

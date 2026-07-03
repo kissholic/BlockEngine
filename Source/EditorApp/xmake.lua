@@ -1,0 +1,5 @@
+target("BlockEditor")
+    set_kind("binary")
+    set_default(false)
+    add_deps("Engine", "Platform", "Render", "Editor")
+    add_files("Main.cpp")

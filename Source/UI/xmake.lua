@@ -1,0 +1,5 @@
+target("UI")
+    set_kind("static")
+    add_deps("Core", "Platform")
+    add_packages("imgui")
+    add_files("UI.mpp", {public = true})

@@ -1,0 +1,40 @@
+module;
+#include <cmath>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+export module be.core:math;
+
+import std;
+
+export namespace be {
+
+using Vec3 = glm::vec3;
+using Mat4 = glm::mat4;
+
+struct Ray
+{
+    Vec3 o, d;
+
+    std::optional<float> Hit(Vec3 mn, Vec3 mx) const
+    {
+        float t1 = (mn.x - o.x) / d.x;
+        float t2 = (mx.x - o.x) / d.x;
+        if (t1 > t2) std::swap(t1, t2);
+        float ty1 = (mn.y - o.y) / d.y;
+        float ty2 = (mx.y - o.y) / d.y;
+        if (ty1 > ty2) std::swap(ty1, ty2);
+        if (t1 > ty2 || ty1 > t2) return {};
+        if (ty1 > t1) t1 = ty1;
+        if (ty2 < t2) t2 = ty2;
+        float tz1 = (mn.z - o.z) / d.z;
+        float tz2 = (mx.z - o.z) / d.z;
+        if (tz1 > tz2) std::swap(tz1, tz2);
+        if (t1 > tz2 || tz1 > t2) return {};
+        if (tz1 > t1) t1 = tz1;
+        if (tz2 < t2) t2 = tz2;
+        return t1 > 0 ? std::optional<float>{t1} : std::optional<float>{t2};
+    }
+};
+
+} // namespace be

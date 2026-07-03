@@ -1,0 +1,153 @@
+module;
+#include "sokol_app.h"
+
+export module be.input;
+
+import std;
+import be.core;
+
+export namespace be {
+
+struct InputState
+{
+    bool keys[512] = {};
+    bool keysDown[512] = {};
+    bool keysUp[512] = {};
+    bool mouseButtons[8] = {};
+    bool mouseButtonsDown[8] = {};
+    bool mouseButtonsUp[8] = {};
+    float mouseX = 0;
+    float mouseY = 0;
+    float mouseDeltaX = 0;
+    float mouseDeltaY = 0;
+    float scrollDelta = 0;
+};
+
+class InputSystem
+{
+public:
+    void BeginFrame()
+    {
+        std::lock_guard lock(mMutex);
+        for (auto& v : mState.keysDown) v = false;
+        for (auto& v : mState.keysUp) v = false;
+        for (auto& v : mState.mouseButtonsDown) v = false;
+        for (auto& v : mState.mouseButtonsUp) v = false;
+        mState.mouseDeltaX = 0;
+        mState.mouseDeltaY = 0;
+        mState.scrollDelta = 0;
+    }
+
+    void HandleEvent(const sapp_event* ev)
+    {
+        if (!ev) return;
+        std::lock_guard lock(mMutex);
+
+        switch (ev->type)
+        {
+            case SAPP_EVENTTYPE_KEY_DOWN:
+            {
+                std::uint32_t k = static_cast<std::uint32_t>(ev->key_code);
+                if (k < 512)
+                {
+                    if (!mState.keys[k]) mState.keysDown[k] = true;
+                    mState.keys[k] = true;
+                }
+                break;
+            }
+            case SAPP_EVENTTYPE_KEY_UP:
+            {
+                std::uint32_t k = static_cast<std::uint32_t>(ev->key_code);
+                if (k < 512)
+                {
+                    mState.keysUp[k] = true;
+                    mState.keys[k] = false;
+                }
+                break;
+            }
+            case SAPP_EVENTTYPE_MOUSE_DOWN:
+            {
+                std::uint32_t b = static_cast<std::uint32_t>(ev->mouse_button);
+                if (b < 8)
+                {
+                    if (!mState.mouseButtons[b]) mState.mouseButtonsDown[b] = true;
+                    mState.mouseButtons[b] = true;
+                }
+                break;
+            }
+            case SAPP_EVENTTYPE_MOUSE_UP:
+            {
+                std::uint32_t b = static_cast<std::uint32_t>(ev->mouse_button);
+                if (b < 8)
+                {
+                    mState.mouseButtonsUp[b] = true;
+                    mState.mouseButtons[b] = false;
+                }
+                break;
+            }
+            case SAPP_EVENTTYPE_MOUSE_MOVE:
+            {
+                mState.mouseDeltaX = ev->mouse_dx;
+                mState.mouseDeltaY = ev->mouse_dy;
+                mState.mouseX = ev->mouse_x;
+                mState.mouseY = ev->mouse_y;
+                break;
+            }
+            case SAPP_EVENTTYPE_MOUSE_SCROLL:
+            {
+                mState.scrollDelta = ev->scroll_y;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    bool IsKeyDown(std::uint32_t key) const
+    {
+        std::lock_guard lock(mMutex);
+        return key < 512 ? mState.keys[key] : false;
+    }
+
+    bool IsKeyPressed(std::uint32_t key) const
+    {
+        std::lock_guard lock(mMutex);
+        return key < 512 ? mState.keysDown[key] : false;
+    }
+
+    bool IsKeyReleased(std::uint32_t key) const
+    {
+        std::lock_guard lock(mMutex);
+        return key < 512 ? mState.keysUp[key] : false;
+    }
+
+    bool IsMouseDown(std::uint32_t button) const
+    {
+        std::lock_guard lock(mMutex);
+        return button < 8 ? mState.mouseButtons[button] : false;
+    }
+
+    bool IsMousePressed(std::uint32_t button) const
+    {
+        std::lock_guard lock(mMutex);
+        return button < 8 ? mState.mouseButtonsDown[button] : false;
+    }
+
+    bool IsMouseReleased(std::uint32_t button) const
+    {
+        std::lock_guard lock(mMutex);
+        return button < 8 ? mState.mouseButtonsUp[button] : false;
+    }
+
+    InputState CopyState() const
+    {
+        std::lock_guard lock(mMutex);
+        return mState;
+    }
+
+private:
+    mutable std::mutex mMutex;
+    InputState mState;
+};
+
+} // namespace be
