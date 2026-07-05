@@ -4,6 +4,21 @@ import std;
 
 export namespace be::ecs {
 
+namespace detail {
+
+inline std::size_t NextTypeCode()
+{
+    static std::size_t counter = 0;
+    return counter++;
+}
+
+template <typename T>
+inline std::size_t TypeCodeFor = NextTypeCode();
+
+} // namespace detail
+
+using TypeId = std::size_t;
+
 struct Ent
 {
     std::uint32_t i = 0, g = 0;
@@ -18,254 +33,464 @@ concept Comp = std::semiregular<T> && std::is_move_constructible_v<T>;
 
 namespace detail {
 
-constexpr std::uint32_t INVALID = ~0u;
-
-template <Comp T>
-class ComponentPool
+class ArchetypeColumn
 {
-    std::vector<std::uint32_t> mSparse;
-    std::vector<std::uint32_t> mEntities;
-    std::vector<T>             mDense;
-
 public:
-    T& Add(std::uint32_t ei, T c)
+    explicit ArchetypeColumn(std::size_t elemSize)
+        : mElemSize(elemSize) {}
+
+    [[nodiscard]] std::size_t Count() const
     {
-        if (ei >= mSparse.size())
+        return mData.size() / mElemSize;
+    }
+
+    void Reserve(std::size_t n)
+    {
+        mData.reserve(n * mElemSize);
+    }
+
+    template <Comp T>
+    T* Push(const T& val)
+    {
+        std::size_t idx = Count();
+        mData.resize((idx + 1) * mElemSize);
+        auto* ptr = reinterpret_cast<T*>(&mData[idx * mElemSize]);
+        std::construct_at(ptr, val);
+        return ptr;
+    }
+
+    template <Comp T>
+    T* At(std::size_t row)
+    {
+        return reinterpret_cast<T*>(&mData[row * mElemSize]);
+    }
+
+    template <Comp T>
+    const T* At(std::size_t row) const
+    {
+        return reinterpret_cast<const T*>(&mData[row * mElemSize]);
+    }
+
+    void RemoveSwap(std::size_t row)
+    {
+        std::size_t last = Count() - 1;
+        if (row != last)
         {
-            mSparse.resize(ei + 256, INVALID);
+            std::memcpy(&mData[row * mElemSize],
+                &mData[last * mElemSize], mElemSize);
         }
-        auto& slot = mSparse[ei];
-        if (slot != INVALID)
-        {
-            mDense[slot] = std::move(c);
-            return mDense[slot];
-        }
-        slot = static_cast<std::uint32_t>(mDense.size());
-        mEntities.push_back(ei);
-        mDense.push_back(std::move(c));
-        return mDense.back();
+        mData.resize(last * mElemSize);
     }
 
-    void Remove(std::uint32_t ei)
+    [[nodiscard]] std::size_t ElemSize() const { return mElemSize; }
+
+    [[nodiscard]] std::uint8_t* DataAt(std::size_t row)
     {
-        if (ei >= mSparse.size()) return;
-        auto& slot = mSparse[ei];
-        if (slot == INVALID) return;
-        std::uint32_t last = static_cast<std::uint32_t>(mDense.size() - 1);
-        if (slot != last)
-        {
-            mDense[slot] = std::move(mDense[last]);
-            mEntities[slot] = mEntities[last];
-            mSparse[mEntities[slot]] = slot;
-        }
-        mDense.pop_back();
-        mEntities.pop_back();
-        mSparse[ei] = INVALID;
+        return &mData[row * mElemSize];
     }
 
-    T* Get(std::uint32_t ei)
+    void Grow()
     {
-        if (ei >= mSparse.size()) return nullptr;
-        std::uint32_t slot = mSparse[ei];
-        return slot != INVALID ? &mDense[slot] : nullptr;
+        mData.resize(mData.size() + mElemSize);
     }
 
-    const T* Get(std::uint32_t ei) const
-    {
-        if (ei >= mSparse.size()) return nullptr;
-        std::uint32_t slot = mSparse[ei];
-        return slot != INVALID ? &mDense[slot] : nullptr;
-    }
-
-    bool Has(std::uint32_t ei) const
-    {
-        return ei < mSparse.size() && mSparse[ei] != INVALID;
-    }
-
-    std::uint32_t Size() const { return static_cast<std::uint32_t>(mDense.size()); }
-
-    std::vector<std::uint32_t>& Entities()    { return mEntities; }
-    const std::vector<std::uint32_t>& Entities() const { return mEntities; }
-    std::vector<T>& Components()    { return mDense; }
-    const std::vector<T>& Components() const { return mDense; }
-};
-
-struct IPool
-{
-    virtual ~IPool() = default;
-    virtual void Remove(std::uint32_t ei) = 0;
-};
-
-template <Comp T>
-class TypedPool : public IPool
-{
-    ComponentPool<T> mPool;
-public:
-    ComponentPool<T>& Get()                 { return mPool; }
-    const ComponentPool<T>& Get() const     { return mPool; }
-    void Remove(std::uint32_t ei) override  { mPool.Remove(ei); }
+private:
+    std::size_t mElemSize;
+    std::vector<std::uint8_t> mData;
 };
 
 } // namespace detail
 
+class Archetype
+{
+public:
+    explicit Archetype(std::vector<TypeId> typeIds)
+        : mTypeIds(std::move(typeIds))
+    {
+        for (auto tid : mTypeIds)
+        {
+            mColumns[tid] = nullptr;
+        }
+    }
+
+    const std::vector<TypeId>& GetTypeIds() const
+    {
+        return mTypeIds;
+    }
+
+    template <Comp T>
+    bool Has() const
+    {
+        return mColumns.contains(detail::TypeCodeFor<T>);
+    }
+
+    std::size_t Count() const { return mEntityCount; }
+    const std::vector<Ent>& GetEntities() const { return mEntities; }
+
+    Ent GetEntity(std::size_t row) const { return mEntities[row]; }
+
+    std::size_t AddEntity(Ent e)
+    {
+        std::size_t row = mEntityCount;
+        mEntities.push_back(e);
+        mEntityCount++;
+        for (auto& [tid, col] : mColumns)
+        {
+            if (col) col->Grow();
+        }
+        return row;
+    }
+
+    Ent RemoveEntity(std::size_t row)
+    {
+        Ent removed = mEntities[row];
+        std::size_t last = mEntityCount - 1;
+        if (row != last)
+        {
+            mEntities[row] = mEntities[last];
+        }
+        for (auto& [tid, col] : mColumns)
+        {
+            if (col) col->RemoveSwap(row);
+        }
+        mEntities.pop_back();
+        mEntityCount--;
+        return removed;
+    }
+
+    template <Comp T>
+        requires std::constructible_from<T, T>
+    T* AddComp(Ent, const T& val)
+    {
+        auto tid = detail::TypeCodeFor<T>;
+        if (!mColumns.contains(tid))
+        {
+            auto col = std::make_unique<detail::ArchetypeColumn>(sizeof(T));
+            mColumns[tid] = std::move(col);
+        }
+        if (!mColumns[tid]) mColumns[tid] =
+            std::make_unique<detail::ArchetypeColumn>(sizeof(T));
+        return mColumns[tid]->template Push<T>(val);
+    }
+
+    template <Comp T>
+    T* GetComp(std::size_t row)
+    {
+        auto tid = detail::TypeCodeFor<T>;
+        if (!mColumns.contains(tid) || !mColumns[tid]) return nullptr;
+        return mColumns[tid]->template At<T>(row);
+    }
+
+    template <Comp T>
+    const T* GetComp(std::size_t row) const
+    {
+        auto tid = detail::TypeCodeFor<T>;
+        if (!mColumns.contains(tid) || !mColumns[tid]) return nullptr;
+        return mColumns[tid]->template At<T>(row);
+    }
+
+    void EnsureColumn(TypeId tid, std::size_t elemSize)
+    {
+        if (!mColumns.contains(tid))
+            mColumns[tid] = std::make_unique<detail::ArchetypeColumn>(elemSize);
+        if (!mColumns[tid])
+            mColumns[tid] = std::make_unique<detail::ArchetypeColumn>(elemSize);
+    }
+
+    bool HasColumn(TypeId tid) const
+    {
+        return mColumns.contains(tid) && mColumns.at(tid) != nullptr;
+    }
+
+    detail::ArchetypeColumn* GetColumn(TypeId tid)
+    {
+        if (!mColumns.contains(tid)) return nullptr;
+        return mColumns[tid].get();
+    }
+
+private:
+    std::vector<TypeId> mTypeIds;
+    std::vector<Ent> mEntities;
+    std::size_t mEntityCount = 0;
+    std::unordered_map<TypeId, std::unique_ptr<detail::ArchetypeColumn>> mColumns;
+};
+
 class Registry
 {
-    std::vector<std::uint32_t> mGen;
-    std::vector<std::uint32_t> mFree;
-    std::unordered_map<std::type_index, std::unique_ptr<detail::IPool>> mPools;
-
 public:
     Ent Create()
     {
-        std::uint32_t i;
-        if (!mFree.empty())
+        std::uint32_t idx;
+        if (!mFreeEntities.empty())
         {
-            i = mFree.back();
-            mFree.pop_back();
+            idx = mFreeEntities.back();
+            mFreeEntities.pop_back();
         }
         else
         {
-            i = static_cast<std::uint32_t>(mGen.size());
-            mGen.push_back(1);
+            idx = static_cast<std::uint32_t>(mGenerations.size());
+            mGenerations.push_back(1);
         }
-        return {i, mGen[i]};
+        Ent e{idx, mGenerations[idx]};
+
+        if (!mEmptyArchetype) mEmptyArchetype = &GetOrCreateArchetype({});
+        std::size_t row = mEmptyArchetype->AddEntity(e);
+        mEntityArch[idx] = mEmptyArchetype;
+        mEntityRow[idx] = row;
+
+        return e;
     }
 
     void Destroy(Ent e)
     {
         if (!Valid(e)) return;
-        for (auto& [_, p] : mPools) { p->Remove(e.i); }
-        mGen[e.i]++;
-        mFree.push_back(e.i);
+
+        auto* arch = mEntityArch[e.i];
+        if (!arch) return;
+
+        std::size_t row = mEntityRow[e.i];
+        arch->RemoveEntity(row);
+
+        for (auto& [idx, a] : mEntityArch)
+        {
+            if (a == arch && mEntityRow[idx] > row)
+            {
+                mEntityRow[idx]--;
+            }
+        }
+
+        mEntityArch.erase(e.i);
+        mEntityRow.erase(e.i);
+
+        mGenerations[e.i]++;
+        mFreeEntities.push_back(e.i);
     }
 
     bool Valid(Ent e) const
     {
-        return e.i < mGen.size() && mGen[e.i] == e.g && e.g;
+        return e.i < mGenerations.size()
+            && mGenerations[e.i] == e.g
+            && e.g > 0;
     }
 
     template <Comp T, typename... Args>
         requires std::constructible_from<T, Args...>
     T& Add(Ent e, Args&&... args)
     {
-        return Typed<T>().Get().Add(e.i, T(std::forward<Args>(args)...));
+        return AddComp(e, T(std::forward<Args>(args)...));
     }
 
     template <Comp T>
-    T& Get(Ent e) { return *Pool<T>().Get(e.i); }
+    T& Get(Ent e) { return *Try<T>(e); }
 
     template <Comp T>
-    const T& Get(Ent e) const { return *Pool<T>().Get(e.i); }
+    const T& Get(Ent e) const
+    {
+        return *const_cast<Registry*>(this)->Try<T>(e);
+    }
 
     template <Comp T>
-    T* Try(Ent e) { return Pool<T>().Get(e.i); }
+    T* Try(Ent e)
+    {
+        auto* arch = mEntityArch[e.i];
+        if (!arch) return nullptr;
+        if (!arch->Has<T>()) return nullptr;
+        return arch->GetComp<T>(mEntityRow[e.i]);
+    }
 
     template <Comp T>
-    bool Has(Ent e) const { return Pool<T>().Has(e.i); }
+    const T* Try(Ent e) const
+    {
+        return const_cast<Registry*>(this)->Try<T>(e);
+    }
 
     template <Comp T>
-    void Remove(Ent e) { Pool<T>().Remove(e.i); }
+    bool Has(Ent e) const
+    {
+        auto* arch = mEntityArch.find(e.i) != mEntityArch.end()
+            ? mEntityArch.at(e.i) : nullptr;
+        if (!arch) return false;
+        return arch->Has<T>();
+    }
+
+    template <Comp T>
+    void Remove(Ent e)
+    {
+        RemoveComp<T>(e);
+    }
 
     std::uint32_t Generation(std::uint32_t i) const
     {
-        return i < mGen.size() ? mGen[i] : 0;
+        return i < mGenerations.size() ? mGenerations[i] : 0;
     }
 
     template <typename... C, typename F>
     void Each(F&& f)
     {
-        if constexpr (sizeof...(C) == 1)
+        using First = std::tuple_element_t<0, std::tuple<C...>>;
+        auto firstId = detail::TypeCodeFor<First>;
+
+        for (auto& [typeVec, arch] : mArchetypes)
         {
-            ForEach1<C...>(std::forward<F>(f));
-        }
-        else if constexpr (sizeof...(C) == 2)
-        {
-            ForEach2<C...>(std::forward<F>(f));
-        }
-        else if constexpr (sizeof...(C) == 3)
-        {
-            ForEach3<C...>(std::forward<F>(f));
+            if (!arch || arch->Count() == 0) continue;
+            if (!arch->template Has<First>()) continue;
+            if (!HasAll<C...>(*arch)) continue;
+
+            auto& ents = arch->GetEntities();
+            for (std::size_t row = 0; row < arch->Count(); ++row)
+            {
+                if constexpr (sizeof...(C) == 1)
+                {
+                    f(ents[row], *arch->template GetComp<C>(row)...);
+                }
+                else if constexpr (sizeof...(C) == 2)
+                {
+                    f(ents[row],
+                        *arch->template GetComp<C>(row)...);
+                }
+                else if constexpr (sizeof...(C) == 3)
+                {
+                    f(ents[row],
+                        *arch->template GetComp<C>(row)...);
+                }
+            }
         }
     }
 
 private:
-    template <Comp T>
-    detail::ComponentPool<T>& Pool() { return Typed<T>().Get(); }
+    std::vector<std::uint32_t> mGenerations;
+    std::vector<std::uint32_t> mFreeEntities;
+
+    std::unordered_map<std::uint32_t, Archetype*> mEntityArch;
+    std::unordered_map<std::uint32_t, std::size_t> mEntityRow;
+
+    std::map<std::vector<TypeId>, std::unique_ptr<Archetype>> mArchetypes;
+    Archetype* mEmptyArchetype = nullptr;
 
     template <Comp T>
-    const detail::ComponentPool<T>& Pool() const { return CTPool<T>().Get(); }
+    T& AddComp(Ent e, T&& val)
+    {
+        auto tid = detail::TypeCodeFor<T>;
+        auto* oldArch = mEntityArch[e.i];
+        std::size_t oldRow = mEntityRow[e.i];
+
+        auto newTypeIds = oldArch->GetTypeIds();
+        if (!std::ranges::contains(newTypeIds, tid))
+        {
+            newTypeIds.push_back(tid);
+            std::ranges::sort(newTypeIds);
+        }
+
+        auto& newArch = GetOrCreateArchetype(newTypeIds);
+
+        for (auto ot : oldArch->GetTypeIds())
+        {
+            if (!newArch.HasColumn(ot))
+            {
+                newArch.EnsureColumn(ot, ColumnSizeFor(oldArch, ot));
+            }
+        }
+        newArch.EnsureColumn(tid, sizeof(T));
+
+        std::size_t newRow = newArch.AddEntity(e);
+        CopyComponents(*oldArch, oldRow, newArch, newRow);
+
+        auto* result = newArch.template AddComp<T>(e, val);
+        newArch.template GetComp<T>(newRow);
+
+        oldArch->RemoveEntity(oldRow);
+        FixupIndices(oldArch, oldRow);
+
+        mEntityArch[e.i] = &newArch;
+        mEntityRow[e.i] = newRow;
+
+        return *newArch.template GetComp<T>(newRow);
+    }
 
     template <Comp T>
-    detail::TypedPool<T>& Typed()
+    void RemoveComp(Ent e)
     {
-        auto tid = std::type_index(typeid(T));
-        auto it = mPools.find(tid);
-        if (it == mPools.end())
+        auto tid = detail::TypeCodeFor<T>;
+        auto* oldArch = mEntityArch[e.i];
+        std::size_t oldRow = mEntityRow[e.i];
+
+        auto newTypeIds = oldArch->GetTypeIds();
+        auto it = std::ranges::find(newTypeIds, tid);
+        if (it == newTypeIds.end()) return;
+        newTypeIds.erase(it);
+
+        auto& newArch = GetOrCreateArchetype(newTypeIds);
+
+        for (auto ot : newTypeIds)
         {
-            auto p = std::make_unique<detail::TypedPool<T>>();
-            auto* r = p.get();
-            mPools[tid] = std::move(p);
-            return *r;
+            if (!newArch.HasColumn(ot))
+            {
+                newArch.EnsureColumn(ot, ColumnSizeFor(oldArch, ot));
+            }
         }
-        return static_cast<detail::TypedPool<T>&>(*it->second);
+
+        std::size_t newRow = newArch.AddEntity(e);
+        CopyComponents(*oldArch, oldRow, newArch, newRow);
+
+        oldArch->RemoveEntity(oldRow);
+        FixupIndices(oldArch, oldRow);
+
+        mEntityArch[e.i] = &newArch;
+        mEntityRow[e.i] = newRow;
     }
 
-    template <Comp T>
-    const detail::TypedPool<T>& CTPool() const
+    Archetype& GetOrCreateArchetype(const std::vector<TypeId>& typeIds)
     {
-        return static_cast<const detail::TypedPool<T>&>(
-            *mPools.at(std::type_index(typeid(T))));
+        auto it = mArchetypes.find(typeIds);
+        if (it != mArchetypes.end()) return *it->second;
+
+        auto arch = std::make_unique<Archetype>(typeIds);
+        auto* ptr = arch.get();
+        mArchetypes[typeIds] = std::move(arch);
+        return *ptr;
     }
 
-    template <Comp T, typename F>
-    void ForEach1(F&& f)
+    void CopyComponents(
+        Archetype& src, std::size_t srcRow,
+        Archetype& dst, std::size_t dstRow)
     {
-        auto& pool = Pool<T>();
-        auto& ents = pool.Entities();
-        auto& comps = pool.Components();
-        for (std::uint32_t i = 0; i < pool.Size(); ++i)
+        for (auto tid : src.GetTypeIds())
         {
-            Ent e{ents[i], mGen[ents[i]]};
-            f(e, comps[i]);
+            if (!dst.HasColumn(tid)) continue;
+            auto* sc = src.GetColumn(tid);
+            auto* dc = dst.GetColumn(tid);
+            if (!sc || !dc) continue;
+            std::size_t elemSize = sc->ElemSize();
+            auto* sdata = sc->DataAt(srcRow);
+            auto* ddata = dc->DataAt(dstRow);
+            std::memcpy(ddata, sdata, elemSize);
         }
     }
 
-    template <Comp T1, Comp T2, typename F>
-    void ForEach2(F&& f)
+    void FixupIndices(Archetype* arch, std::size_t removedRow)
     {
-        auto& p1 = Pool<T1>();
-        auto& p2 = Pool<T2>();
-        auto& ents = p1.Entities();
-        auto& c1 = p1.Components();
-        for (std::uint32_t i = 0; i < p1.Size(); ++i)
+        for (auto& [idx, a] : mEntityArch)
         {
-            std::uint32_t ei = ents[i];
-            auto* c2 = p2.Get(ei);
-            if (!c2) continue;
-            Ent e{ei, mGen[ei]};
-            f(e, c1[i], *c2);
+            if (a == arch && mEntityRow[idx] > removedRow)
+            {
+                mEntityRow[idx]--;
+            }
         }
     }
 
-    template <Comp T1, Comp T2, Comp T3, typename F>
-    void ForEach3(F&& f)
+    template <typename... C>
+    bool HasAll(const Archetype& arch) const
     {
-        auto& p1 = Pool<T1>();
-        auto& p2 = Pool<T2>();
-        auto& p3 = Pool<T3>();
-        auto& ents = p1.Entities();
-        auto& c1 = p1.Components();
-        for (std::uint32_t i = 0; i < p1.Size(); ++i)
-        {
-            std::uint32_t ei = ents[i];
-            auto* c2 = p2.Get(ei);
-            if (!c2) continue;
-            auto* c3 = p3.Get(ei);
-            if (!c3) continue;
-            Ent e{ei, mGen[ei]};
-            f(e, c1[i], *c2, *c3);
-        }
+        return (arch.template Has<C>() && ...);
     }
+
+    std::size_t ColumnSizeFor(Archetype* arch, TypeId tid)
+    {
+        auto* col = arch->GetColumn(tid);
+        return col ? col->ElemSize() : 0;
+    }
+
+    friend class Archetype;
 };
 
 } // namespace be::ecs

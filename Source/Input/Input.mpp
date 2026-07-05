@@ -98,6 +98,16 @@ public:
                 mState.scrollDelta = ev->scroll_y;
                 break;
             }
+            case SAPP_EVENTTYPE_UNFOCUSED:
+            {
+                for (auto& v : mState.keys) v = false;
+                for (auto& v : mState.keysDown) v = false;
+                for (auto& v : mState.keysUp) v = false;
+                for (auto& v : mState.mouseButtons) v = false;
+                for (auto& v : mState.mouseButtonsDown) v = false;
+                for (auto& v : mState.mouseButtonsUp) v = false;
+                break;
+            }
             default:
                 break;
         }

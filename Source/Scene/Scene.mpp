@@ -1,6 +1,7 @@
 module;
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include "sokol_app.h"
 #include "spdlog/spdlog.h"
 #include "imgui.h"
@@ -15,13 +16,184 @@ import be.platform;
 import be.render;
 import be.input;
 import be.ui;
+import be.asset;
 import :level;
 
 export namespace be {
 
+enum class SceneProfile
+{
+    Editor,
+    EditorPlay,
+    Runtime
+};
+
 struct Velocity
 {
     Vec3 value{};
+};
+
+class CameraSystem : public ISystem
+{
+public:
+    CameraSystem(Camera& camera, InputSystem& input)
+        : mCamera(camera), mInput(input) {}
+    std::string_view GetName() const override { return "CameraSystem"; }
+
+    void Update(float dt) override
+    {
+        const float speed = 10.0f * dt;
+        Vec3 forward = mCamera.target - mCamera.position;
+        forward.y = 0;
+        float lenSq = glm::dot(forward, forward);
+        if (lenSq > 0.0001f)
+            forward = glm::normalize(forward);
+        else
+            forward = Vec3{0, 0, -1};
+
+        Vec3 right =
+            glm::normalize(glm::cross(forward, Vec3{0, 1, 0}));
+        Vec3 move{};
+        if (mInput.IsKeyDown(SAPP_KEYCODE_W)) move += forward;
+        if (mInput.IsKeyDown(SAPP_KEYCODE_S)) move -= forward;
+        if (mInput.IsKeyDown(SAPP_KEYCODE_A)) move -= right;
+        if (mInput.IsKeyDown(SAPP_KEYCODE_D)) move += right;
+        if (mInput.IsKeyDown(SAPP_KEYCODE_E)) move += Vec3{0, 1, 0};
+        if (mInput.IsKeyDown(SAPP_KEYCODE_Q)) move -= Vec3{0, 1, 0};
+
+        if (glm::dot(move, move) > 0.001f)
+        {
+            move = glm::normalize(move) * speed;
+            mCamera.position += move;
+            mCamera.target += move;
+        }
+
+        if (mInput.IsMouseDown(
+                static_cast<std::uint32_t>(SAPP_MOUSEBUTTON_RIGHT)))
+        {
+            auto state = mInput.CopyState();
+            float dx = state.mouseDeltaX;
+            float dy = state.mouseDeltaY;
+            if (dx != 0.0f || dy != 0.0f)
+            {
+                Vec3 dir = mCamera.position - mCamera.target;
+                float dist = glm::length(dir);
+                if (dist < 0.01f) dist = 5.0f;
+
+                float yaw = std::atan2(dir.x, dir.z);
+                float pitch = std::asin(dir.y / dist);
+
+                yaw   -= dx * 0.005f;
+                pitch -= dy * 0.005f;
+                pitch = std::clamp(pitch, -1.5f, 1.5f);
+
+                mCamera.position.x = mCamera.target.x
+                    + dist * std::cos(pitch) * std::sin(yaw);
+                mCamera.position.y = mCamera.target.y
+                    + dist * std::sin(pitch);
+                mCamera.position.z = mCamera.target.z
+                    + dist * std::cos(pitch) * std::cos(yaw);
+            }
+        }
+    }
+
+private:
+    Camera& mCamera;
+    InputSystem& mInput;
+};
+
+class MovementSystem : public ISystem
+{
+public:
+    explicit MovementSystem(ecs::Registry& registry)
+        : mRegistry(registry) {}
+    std::string_view GetName() const override { return "MovementSystem"; }
+
+    void Update(float dt) override
+    {
+        mRegistry.Each<Transform, Velocity>(
+            [dt](ecs::Ent, Transform& t, Velocity& v)
+            {
+                t.position += v.value * dt;
+                if (t.position.x > 5.0f)
+                    v.value.x = -std::abs(v.value.x);
+                if (t.position.x < -5.0f)
+                    v.value.x = std::abs(v.value.x);
+                if (t.position.z > 5.0f)
+                    v.value.z = -std::abs(v.value.z);
+                if (t.position.z < -5.0f)
+                    v.value.z = std::abs(v.value.z);
+            }
+        );
+    }
+
+private:
+    ecs::Registry& mRegistry;
+};
+
+class PickingSystem : public ISystem
+{
+public:
+    PickingSystem(ecs::Registry& registry, Camera& camera,
+        InputSystem& input, ecs::Ent& selected)
+        : mRegistry(registry), mCamera(camera),
+          mInput(input), mSelected(selected) {}
+    std::string_view GetName() const override { return "PickingSystem"; }
+
+    void Update(float dt) override
+    {
+        if (!mInput.IsMousePressed(static_cast<std::uint32_t>(
+                SAPP_MOUSEBUTTON_LEFT)))
+            return;
+
+        auto& app = SokolApp::Instance();
+        auto state = mInput.CopyState();
+
+        float mx = state.mouseX;
+        float my = state.mouseY;
+        float sw = static_cast<float>(app.WindowWidth());
+        float sh = static_cast<float>(app.WindowHeight());
+        float ndcX = (2.0f * mx / sw) - 1.0f;
+        float ndcY = 1.0f - (2.0f * my / sh);
+
+        float tanHalfFov = std::tan(mCamera.fovY * 0.5f);
+        float aspect = app.AspectRatio();
+
+        Vec3 forward =
+            glm::normalize(mCamera.target - mCamera.position);
+        Vec3 right =
+            glm::normalize(glm::cross(forward, Vec3{0, 1, 0}));
+        Vec3 up = glm::cross(right, forward);
+        Vec3 rayDir = glm::normalize(forward
+            + right * (ndcX * aspect * tanHalfFov)
+            + up * (ndcY * tanHalfFov));
+        Ray ray{mCamera.position, rayDir};
+
+        float bestT = 1e30f;
+        ecs::Ent bestEnt = ecs::Null;
+        mRegistry.Each<Transform, MeshRenderer>(
+            [&](ecs::Ent e, const Transform& t,
+                const MeshRenderer& mr)
+            {
+                if (!mr.visible) return;
+                Vec3 mn = t.position - mr.halfExtents;
+                Vec3 mx = t.position + mr.halfExtents;
+                auto hit = ray.Hit(mn, mx);
+                if (hit && *hit < bestT)
+                {
+                    bestT = *hit;
+                    bestEnt = e;
+                }
+            }
+        );
+        mSelected = bestEnt;
+    }
+
+private:
+    ecs::Registry& mRegistry;
+    Camera& mCamera;
+    InputSystem& mInput;
+    ecs::Ent& mSelected;
 };
 
 class Scene
@@ -31,28 +203,36 @@ public:
     virtual ~Scene() = default;
 
     ecs::Registry& GetRegistry() { return mRegistry; }
-
     const std::string& GetName() const { return mName; }
     void SetName(std::string name) { mName = std::move(name); }
 
     int GetLevelCount() const
     {
-        int count = 0;
-        for (auto& l : mLevels) { if (l->IsActive()) count++; }
-        return count;
+        int c = 0;
+        for (auto& l : mLevels)
+            if (l->IsActive()) c++;
+        return c;
     }
 
     Level* GetMainLevel() { return mMainLevel; }
+
+    void FocusEntity(std::uint32_t entityId)
+    {
+        auto* t = mRegistry.Try<Transform>({entityId, 0});
+        if (!t) return;
+
+        Vec3 offset = glm::normalize(mCamera.position - t->position) * 3.0f;
+        if (glm::length(offset) < 0.1f) offset = {0, 0, -3};
+        mCamera.target = t->position;
+        mCamera.position = t->position + offset;
+    }
 
     Level* AddLevel(std::unique_ptr<Level> level, bool isMain = false)
     {
         auto* ptr = level.get();
         ptr->mOwnerScene = this;
         mLevels.push_back(std::move(level));
-        if (isMain)
-        {
-            mMainLevel = ptr;
-        }
+        if (isMain) mMainLevel = ptr;
         return ptr;
     }
 
@@ -63,33 +243,37 @@ public:
         mRegistry = ecs::Registry{};
         mSelectedEntity = ecs::Null;
         SetupDefaultLevel();
+        BuildProfileSystems();
     }
 
     virtual void OnExit()
     {
         for (auto& level : mLevels)
         {
-            if (level->IsActive())
-            {
-                level->OnUnload();
-            }
+            if (level->IsActive()) level->OnUnload();
         }
     }
 
-    void Update(float dt, InputSystem& input)
+    void SetProfile(SceneProfile profile)
     {
-        input.BeginFrame();
-        UpdateCam(dt, input);
-        UpdateMovement(dt);
-        UpdatePicking(input);
+        mProfile = profile;
+        BuildProfileSystems();
+    }
 
+    SceneProfile GetProfile() const { return mProfile; }
+
+    void SetInput(InputSystem* input) { mInput = input; }
+
+    void Update(float dt)
+    {
         for (auto& level : mLevels)
         {
-            if (level->IsActive())
-            {
-                level->Update(dt);
-            }
+            if (level->IsActive()) level->Update(dt);
         }
+
+        mSystems.Update(dt);
+
+        if (mInput) mInput->BeginFrame();
 
         mTimeSinceStart += dt;
     }
@@ -104,15 +288,23 @@ public:
         snapshot->cameraPosition = mCamera.position;
         snapshot->cameraTarget = mCamera.target;
 
+        snapshot->ambientLight  = {0.2f, 0.2f, 0.3f};
+        snapshot->lightDir      = glm::normalize(Vec3{0.5f, -1.0f, 0.3f});
+        snapshot->lightColor    = {1.0f, 1.0f, 1.0f};
+        snapshot->lightIntensity = 1.0f;
+
         std::int32_t entityCount = 0;
         mRegistry.Each<Transform, MeshRenderer>(
-            [&](ecs::Ent, const Transform& t, const MeshRenderer& mr)
+            [&](ecs::Ent e, const Transform& t,
+                const MeshRenderer& mr)
             {
                 entityCount++;
+                snapshot->debug.entities.push_back({
+                    e.i, mRegistry.Has<Velocity>(e)
+                });
                 if (!mr.visible) return;
                 snapshot->commands.push_back(
-                    {t.position, mr.halfExtents, mr.color}
-                );
+                    {t.position, mr.halfExtents, mr.color});
             }
         );
 
@@ -121,9 +313,8 @@ public:
             auto* t = mRegistry.Try<Transform>(mSelectedEntity);
             if (t)
             {
-                snapshot->wireCommands.push_back(
-                    {t->position, {0.55f, 0.55f, 0.55f}, {1.0f, 1.0f, 0.0f}}
-                );
+                snapshot->wireCommands.push_back({t->position,
+                    {0.55f, 0.55f, 0.55f}, {1.0f, 1.0f, 0.0f}});
             }
         }
 
@@ -136,13 +327,10 @@ public:
         if (mSelectedEntity != ecs::Null)
         {
             snapshot->debug.selectedEntity = mSelectedEntity;
-
             auto* t = mRegistry.Try<Transform>(mSelectedEntity);
             if (t) snapshot->debug.selectedTransform = *t;
-
             auto* mr = mRegistry.Try<MeshRenderer>(mSelectedEntity);
             if (mr) snapshot->debug.selectedRenderer = *mr;
-
             auto* v = mRegistry.Try<Velocity>(mSelectedEntity);
             if (v)
             {
@@ -156,10 +344,10 @@ public:
         bridge.Publish(std::move(snapshot));
     }
 
-    void DrawDebugUI(const SokolApp& app, const FrameSnapshot& snapshot)
+    void DrawDebugUI(const SokolApp& app,
+        const FrameSnapshot& snapshot)
     {
         ImGui::Begin("BlockEngine Debug");
-
         ImGui::Text("Scene: %s", snapshot.debug.sceneName.c_str());
         ImGui::Text("Levels: %d", snapshot.debug.levelCount);
         float fps = static_cast<float>(1.0 / app.DeltaTime());
@@ -181,23 +369,9 @@ public:
             ImGui::Text("Selected: Entity %u (gen %u)",
                 snapshot.debug.selectedEntity.i,
                 snapshot.debug.selectedEntity.g);
-
             Vec3 pos = snapshot.debug.selectedTransform.position;
-            ImGui::Text("Position: (%.2f, %.2f, %.2f)", pos.x, pos.y, pos.z);
-            ImGui::Text("Color: (%.2f, %.2f, %.2f)",
-                snapshot.debug.selectedRenderer.color.x,
-                snapshot.debug.selectedRenderer.color.y,
-                snapshot.debug.selectedRenderer.color.z);
-            ImGui::Checkbox("Visible",
-                (bool*)(&snapshot.debug.selectedRenderer.visible));
-
-            if (snapshot.debug.hasVelocity)
-            {
-                ImGui::Text("Velocity: (%.2f, %.2f, %.2f)",
-                    snapshot.debug.selectedVelocityX,
-                    snapshot.debug.selectedVelocityY,
-                    snapshot.debug.selectedVelocityZ);
-            }
+            ImGui::Text("Pos: (%.2f, %.2f, %.2f)",
+                pos.x, pos.y, pos.z);
         }
 
         ImGui::End();
@@ -213,9 +387,43 @@ protected:
     std::vector<std::unique_ptr<Level>> mLevels;
     Level* mMainLevel = nullptr;
 
+    SceneProfile mProfile = SceneProfile::Runtime;
+    SystemGroup mSystems;
+    InputSystem* mInput = nullptr;
+
+    void BuildProfileSystems()
+    {
+        mSystems.Clear();
+        switch (mProfile)
+        {
+            case SceneProfile::Editor:
+                mSystems.Add(std::make_unique<CameraSystem>(
+                    mCamera, *mInput));
+                mSystems.Add(std::make_unique<PickingSystem>(
+                    mRegistry, mCamera, *mInput, mSelectedEntity));
+                break;
+
+            case SceneProfile::EditorPlay:
+            case SceneProfile::Runtime:
+                mSystems.Add(std::make_unique<CameraSystem>(
+                    mCamera, *mInput));
+                mSystems.Add(std::make_unique<MovementSystem>(
+                    mRegistry));
+                mSystems.Add(std::make_unique<PickingSystem>(
+                    mRegistry, mCamera, *mInput, mSelectedEntity));
+                break;
+        }
+    }
+
     virtual void SetupDefaultLevel()
     {
         mName = "DemoScene";
+        if (TryLoadFromBlock("Saved/Scenes/demo.block"))
+        {
+            spdlog::info("SetupDefaultLevel: loaded from block");
+            return;
+        }
+
         auto demoLevel = std::make_unique<Level>("DemoLevel");
         auto* level = AddLevel(std::move(demoLevel), true);
 
@@ -224,19 +432,14 @@ protected:
             for (std::int32_t iz = -4; iz <= 4; ++iz)
             {
                 ecs::Ent e = level->CreateEntity();
-
                 mRegistry.Add<Transform>(e, Vec3{
-                    static_cast<float>(ix),
-                    0.5f,
-                    static_cast<float>(iz)
-                });
-
+                    static_cast<float>(ix), 0.5f,
+                    static_cast<float>(iz)});
                 float r = (static_cast<float>(ix) + 4.0f) / 8.0f;
                 float g = (static_cast<float>(iz) + 4.0f) / 8.0f;
                 float b = 1.0f - r;
-
-                mRegistry.Add<MeshRenderer>(e, true, Vec3{r, g, b},
-                    Vec3{0.5f, 0.5f, 0.5f});
+                mRegistry.Add<MeshRenderer>(e, true,
+                    Vec3{r, g, b}, Vec3{0.5f, 0.5f, 0.5f});
             }
         }
 
@@ -244,125 +447,123 @@ protected:
         {
             ecs::Ent e = level->CreateEntity();
             mRegistry.Add<Transform>(e, Vec3{
-                static_cast<float>(std::rand() % 8) - 4.0f,
-                1.5f,
-                static_cast<float>(std::rand() % 8) - 4.0f
-            });
-            mRegistry.Add<MeshRenderer>(e, true, Vec3{1.0f, 0.3f, 0.3f},
-                Vec3{0.4f, 0.4f, 0.4f});
+                static_cast<float>(std::rand() % 8) - 4.0f, 1.5f,
+                static_cast<float>(std::rand() % 8) - 4.0f});
+            mRegistry.Add<MeshRenderer>(e, true,
+                Vec3{1.0f, 0.3f, 0.3f}, Vec3{0.4f, 0.4f, 0.4f});
             mRegistry.Add<Velocity>(e, Vec3{
-                static_cast<float>(std::rand() % 100) / 100.0f * 4.0f - 2.0f,
+                static_cast<float>(std::rand() % 100) / 100.0f
+                    * 4.0f - 2.0f,
                 0.0f,
-                static_cast<float>(std::rand() % 100) / 100.0f * 4.0f - 2.0f
-            });
+                static_cast<float>(std::rand() % 100) / 100.0f
+                    * 4.0f - 2.0f});
         }
 
         spdlog::info("SetupDefaultLevel: created 81 + 5 entities");
+        SaveToBlock("Saved/Scenes/demo.block");
     }
 
-private:
-    void UpdateCam(float dt, InputSystem& input)
+    void SaveToBlock(const std::string& path)
     {
-        const float speed = 10.0f * dt;
-
-        Vec3 forward = mCamera.target - mCamera.position;
-        forward.y = 0;
-        float lenSq = glm::dot(forward, forward);
-        if (lenSq > 0.0001f)
-        {
-            forward = glm::normalize(forward);
-        }
-        else
-        {
-            forward = Vec3{0, 0, -1};
-        }
-
-        Vec3 right = glm::normalize(glm::cross(forward, Vec3{0, 1, 0}));
-
-        Vec3 move{};
-        if (input.IsKeyDown(SAPP_KEYCODE_W)) move += forward;
-        if (input.IsKeyDown(SAPP_KEYCODE_S)) move -= forward;
-        if (input.IsKeyDown(SAPP_KEYCODE_A)) move -= right;
-        if (input.IsKeyDown(SAPP_KEYCODE_D)) move += right;
-        if (input.IsKeyDown(SAPP_KEYCODE_E)) move += Vec3{0, 1, 0};
-        if (input.IsKeyDown(SAPP_KEYCODE_Q)) move -= Vec3{0, 1, 0};
-
-        if (glm::dot(move, move) > 0.001f)
-        {
-            move = glm::normalize(move) * speed;
-            mCamera.position += move;
-            mCamera.target += move;
-        }
-    }
-
-    void UpdateMovement(float dt)
-    {
-        mRegistry.Each<Transform, Velocity>(
-            [dt](ecs::Ent, Transform& t, Velocity& v)
-            {
-                t.position += v.value * dt;
-
-                if (t.position.x > 5.0f) v.value.x = -std::abs(v.value.x);
-                if (t.position.x < -5.0f) v.value.x = std::abs(v.value.x);
-                if (t.position.z > 5.0f) v.value.z = -std::abs(v.value.z);
-                if (t.position.z < -5.0f) v.value.z = std::abs(v.value.z);
-            }
-        );
-    }
-
-    void UpdatePicking(InputSystem& input)
-    {
-        if (!input.IsMousePressed(
-                static_cast<std::uint32_t>(SAPP_MOUSEBUTTON_LEFT)))
-        {
-            return;
-        }
-
-        auto& app = SokolApp::Instance();
-        auto state = input.CopyState();
-
-        float mx = state.mouseX;
-        float my = state.mouseY;
-        float sw = static_cast<float>(app.WindowWidth());
-        float sh = static_cast<float>(app.WindowHeight());
-
-        float ndcX = (2.0f * mx / sw) - 1.0f;
-        float ndcY = 1.0f - (2.0f * my / sh);
-
-        float tanHalfFov = std::tan(mCamera.fovY * 0.5f);
-        float aspect = app.AspectRatio();
-
-        Vec3 forward = glm::normalize(mCamera.target - mCamera.position);
-        Vec3 right =
-            glm::normalize(glm::cross(forward, Vec3{0, 1, 0}));
-        Vec3 up = glm::cross(right, forward);
-
-        Vec3 rayDir = glm::normalize(
-            forward + right * (ndcX * aspect * tanHalfFov)
-            + up * (ndcY * tanHalfFov)
-        );
-        Ray ray{mCamera.position, rayDir};
-
-        float bestT = 1e30f;
-        ecs::Ent bestEnt = ecs::Null;
+        std::filesystem::create_directories(
+            std::filesystem::path(path).parent_path());
+        asset::BlockWriter writer;
 
         mRegistry.Each<Transform, MeshRenderer>(
-            [&](ecs::Ent e, const Transform& t, const MeshRenderer& mr)
+            [&](ecs::Ent e, const Transform& t,
+                const MeshRenderer& mr)
             {
-                if (!mr.visible) return;
+                std::vector<std::uint8_t> payload;
+                std::uint32_t compCount = 2;
+                auto* v = mRegistry.Try<Velocity>(e);
+                if (v) compCount = 3;
+                asset::WriteU32(payload, compCount);
 
-                Vec3 mn = t.position - mr.halfExtents;
-                Vec3 mx = t.position + mr.halfExtents;
-                auto hit = ray.Hit(mn, mx);
-                if (hit && *hit < bestT)
+                asset::WriteU64(
+                    payload, asset::TypeHash("Transform"));
+                auto td = asset::SerializeComp(t);
+                asset::WriteU32(payload,
+                    static_cast<std::uint32_t>(td.size()));
+                payload.insert(payload.end(),
+                    td.begin(), td.end());
+
+                asset::WriteU64(
+                    payload, asset::TypeHash("MeshRenderer"));
+                auto md = asset::SerializeComp(mr);
+                asset::WriteU32(payload,
+                    static_cast<std::uint32_t>(md.size()));
+                payload.insert(payload.end(),
+                    md.begin(), md.end());
+
+                if (v)
                 {
-                    bestT = *hit;
-                    bestEnt = e;
+                    asset::WriteU64(
+                        payload, asset::TypeHash("Velocity"));
+                    auto vd = asset::SerializeComp(*v);
+                    asset::WriteU32(payload,
+                        static_cast<std::uint32_t>(vd.size()));
+                    payload.insert(payload.end(),
+                        vd.begin(), vd.end());
                 }
+
+                writer.Add(asset::TypeHash("Entity"),
+                    std::format("Entity_{}", e.i),
+                    std::move(payload));
             }
         );
 
-        mSelectedEntity = bestEnt;
+        if (writer.Save(path))
+            spdlog::info("Saved scene to {}", path);
+    }
+
+    bool TryLoadFromBlock(const std::string& path)
+    {
+        asset::BlockReader reader;
+        if (!reader.Load(path)) return false;
+
+        auto mainLevel = std::make_unique<Level>("DemoLevel");
+        auto* level = AddLevel(std::move(mainLevel), true);
+
+        static const auto kEntity = asset::TypeHash("Entity");
+        static const auto kTrans  = asset::TypeHash("Transform");
+        static const auto kMesh   = asset::TypeHash("MeshRenderer");
+        static const auto kVel    = asset::TypeHash("Velocity");
+
+        int count = 0;
+        for (auto& entry : reader.GetEntries())
+        {
+            if (entry.typeHash != kEntity) continue;
+            ecs::Ent e = level->CreateEntity();
+            std::size_t off = 0;
+            std::uint32_t compCount =
+                asset::ReadU32(entry.payload, off);
+
+            for (std::uint32_t ci = 0; ci < compCount; ++ci)
+            {
+                auto th = asset::ReadU64(entry.payload, off);
+                auto ds = asset::ReadU32(entry.payload, off);
+                std::vector<std::uint8_t> cd(
+                    entry.payload.begin()
+                        + static_cast<std::ptrdiff_t>(off),
+                    entry.payload.begin()
+                        + static_cast<std::ptrdiff_t>(off + ds));
+                off += ds;
+
+                if (th == kTrans)
+                    mRegistry.Add<Transform>(e,
+                        asset::DeserializeComp<Transform>(cd));
+                else if (th == kMesh)
+                    mRegistry.Add<MeshRenderer>(e,
+                        asset::DeserializeComp<MeshRenderer>(cd));
+                else if (th == kVel)
+                    mRegistry.Add<Velocity>(e,
+                        asset::DeserializeComp<Velocity>(cd));
+            }
+            count++;
+        }
+
+        spdlog::info("Loaded {} entities from {}", count, path);
+        return true;
     }
 };
 
@@ -379,10 +580,7 @@ inline ecs::Ent Level::CreateEntity()
 inline void Level::DestroyAllEntities()
 {
     auto& reg = GetOwnerRegistry();
-    for (auto e : mEntities)
-    {
-        reg.Destroy(e);
-    }
+    for (auto e : mEntities) { reg.Destroy(e); }
     mEntities.clear();
 }
 

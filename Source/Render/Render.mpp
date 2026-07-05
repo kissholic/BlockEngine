@@ -12,6 +12,8 @@ export module be.render;
 import be.core;
 import be.platform;
 
+export import :light;
+
 export namespace be {
 
 struct Transform
@@ -55,8 +57,19 @@ struct FrameSnapshot
     Vec3 cameraPosition{0, 5, 10};
     Vec3 cameraTarget{0, 0, 0};
 
+    Vec3 ambientLight{0.2f, 0.2f, 0.3f};
+    Vec3 lightDir{0.5f, -1.0f, 0.3f};
+    Vec3 lightColor{1.0f, 1.0f, 1.0f};
+    float lightIntensity = 1.0f;
+
     struct DebugUI
     {
+        struct EntityInfo
+        {
+            std::uint32_t id = 0;
+            bool hasVelocity = false;
+        };
+
         std::string sceneName;
         int levelCount = 0;
         float fps = 0;
@@ -69,6 +82,7 @@ struct FrameSnapshot
         float selectedVelocityY = 0;
         float selectedVelocityZ = 0;
         bool hasVelocity = false;
+        std::vector<EntityInfo> entities;
     } debug;
 };
 
@@ -96,6 +110,13 @@ class RenderSystem
 public:
     void Init()
     {
+        sg_pipeline_desc pipDesc = {};
+        pipDesc.depth = {
+            .compare = SG_COMPAREFUNC_LESS_EQUAL,
+            .write_enabled = true,
+        };
+        pipDesc.colors[0].write_mask = SG_COLORMASK_RGBA;
+        mPipeline = sgl_make_pipeline(&pipDesc);
         mInitialized = true;
     }
 
@@ -112,6 +133,7 @@ public:
         auto view = glm::lookAt(camera.position, camera.target, Vec3{0, 1, 0});
 
         sgl_defaults();
+        sgl_load_pipeline(mPipeline);
         sgl_matrix_mode_projection();
         sgl_load_matrix(glm::value_ptr(proj));
 
@@ -127,36 +149,63 @@ public:
     {
         if (!mInitialized) return;
 
-        float x = center.x;
-        float y = center.y;
-        float z = center.z;
-        float hx = halfExtents.x;
-        float hy = halfExtents.y;
-        float hz = halfExtents.z;
+        float x = center.x, y = center.y, z = center.z;
+        float hx = halfExtents.x, hy = halfExtents.y, hz = halfExtents.z;
 
         sgl_begin_triangles();
-        sgl_c3f(color.x, color.y, color.z);
 
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z + hz);
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y + hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz);
-
-        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz);
-        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
-
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z - hz);
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
-
-        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz);
-        sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x + hx, y - hy, z + hz);
-
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x + hx, y - hy, z + hz); sgl_v3f(x - hx, y - hy, z + hz);
-        sgl_v3f(x + hx, y + hy, z + hz); sgl_v3f(x - hx, y - hy, z + hz); sgl_v3f(x - hx, y + hy, z + hz);
-
-        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x - hx, y - hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz);
-        sgl_v3f(x - hx, y + hy, z - hz); sgl_v3f(x + hx, y - hy, z - hz); sgl_v3f(x + hx, y + hy, z - hz);
+        FaceColor(color, {1, 0, 0},  {x+hx, y, z}); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x+hx, y-hy, z-hz); sgl_v3f(x+hx, y-hy, z+hz); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x+hx, y+hy, z-hz); sgl_v3f(x+hx, y-hy, z-hz);
+        FaceColor(color, {-1,0,0},  {x-hx, y, z}); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x-hx, y-hy, z-hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x-hx, y+hy, z+hz);
+        FaceColor(color, {0, 1, 0},  {x, y+hy, z}); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x-hx, y+hy, z+hz); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x+hx, y+hy, z-hz);
+        FaceColor(color, {0,-1,0},  {x, y-hy, z}); sgl_v3f(x+hx, y-hy, z-hz); sgl_v3f(x-hx, y-hy, z-hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x+hx, y-hy, z-hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x+hx, y-hy, z+hz);
+        FaceColor(color, {0, 0, 1},  {x, y, z+hz}); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x+hx, y-hy, z+hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x+hx, y+hy, z+hz); sgl_v3f(x-hx, y-hy, z+hz); sgl_v3f(x-hx, y+hy, z+hz);
+        FaceColor(color, {0, 0,-1},  {x, y, z-hz}); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x-hx, y-hy, z-hz); sgl_v3f(x+hx, y-hy, z-hz); sgl_v3f(x-hx, y+hy, z-hz); sgl_v3f(x+hx, y-hy, z-hz); sgl_v3f(x+hx, y+hy, z-hz);
 
         sgl_end();
     }
+
+    void SetLighting(Vec3 ambient, Vec3 lightDirNorm, Vec3 lightCol, float intensity, Vec3 camPos)
+    {
+        mAmbient   = ambient;
+        mLightDir  = lightDirNorm;
+        mLightCol  = lightCol;
+        mIntensity = intensity;
+        mCamPos    = camPos;
+    }
+
+private:
+    Vec3 mAmbient{0.2f, 0.2f, 0.3f};
+    Vec3 mLightDir{0.5f, -1.0f, 0.3f};
+    Vec3 mLightCol{1.0f, 1.0f, 1.0f};
+    float mIntensity = 1.0f;
+    Vec3 mCamPos{0, 5, 10};
+
+    void FaceColor(Vec3 matColor, Vec3 N, Vec3 faceCenter)
+    {
+        N = glm::normalize(N);
+        float NdotL = std::max(glm::dot(N, mLightDir), 0.0f);
+
+        Vec3 V = glm::normalize(mCamPos - faceCenter);
+        Vec3 H = glm::normalize(mLightDir + V);
+        float NdotH = std::max(glm::dot(N, H), 0.0f);
+        float spec = std::pow(NdotH, 64.0f);
+
+        Vec3 ambient  = mAmbient * matColor;
+        Vec3 diffuse  = mLightCol * matColor * NdotL * mIntensity;
+        Vec3 specular = mLightCol * spec * mIntensity * 0.5f;
+
+        Vec3 result = ambient + diffuse + specular;
+        result.x = std::min(result.x, 1.0f);
+        result.y = std::min(result.y, 1.0f);
+        result.z = std::min(result.z, 1.0f);
+
+        sgl_c3f(result.x, result.y, result.z);
+    }
+
+    bool mInitialized = false;
+    sgl_pipeline mPipeline{};
+
+public:
 
     void DrawWireCube(Vec3 center, Vec3 halfExtents, Vec3 color)
     {
@@ -205,9 +254,6 @@ public:
 
         sgl_end();
     }
-
-private:
-    bool mInitialized = false;
 };
 
 } // namespace be

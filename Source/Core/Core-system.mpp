@@ -1,0 +1,54 @@
+export module be.core:system;
+
+import std;
+
+export namespace be {
+
+class ISystem
+{
+public:
+    virtual ~ISystem() = default;
+    virtual std::string_view GetName() const = 0;
+    virtual void Update(float dt) = 0;
+    virtual bool IsEnabled() const { return mEnabled; }
+    virtual void SetEnabled(bool enabled) { mEnabled = enabled; }
+
+protected:
+    bool mEnabled = true;
+};
+
+class SystemGroup
+{
+public:
+    void Add(std::unique_ptr<ISystem> system)
+    {
+        mSystems.push_back(std::move(system));
+    }
+
+    void Update(float dt)
+    {
+        for (auto& sys : mSystems)
+        {
+            if (sys->IsEnabled())
+            {
+                sys->Update(dt);
+            }
+        }
+    }
+
+    void Clear() { mSystems.clear(); }
+
+    ISystem* Get(const std::string& name)
+    {
+        for (auto& sys : mSystems)
+        {
+            if (sys->GetName() == name) return sys.get();
+        }
+        return nullptr;
+    }
+
+private:
+    std::vector<std::unique_ptr<ISystem>> mSystems;
+};
+
+} // namespace be

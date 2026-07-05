@@ -1,6 +1,7 @@
 import be.engine;
 import be.platform;
 import be.render;
+import be.scene;
 import be.editor;
 
 int main()
@@ -12,6 +13,14 @@ int main()
 
     be::Engine engine;
     be::Editor editor;
+
+    engine.SetSceneProfile(be::SceneProfile::Editor);
+
+    editor.SetFocusCallback(
+        [&engine](unsigned entityId)
+        {
+            engine.FocusEntity(entityId);
+        });
 
     engine.SetEditorInitCallback(
         [&editor]()

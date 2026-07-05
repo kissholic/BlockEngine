@@ -1,0 +1,64 @@
+module;
+#include "sokol_gfx.h"
+
+export module be.shader;
+
+import std;
+import be.core;
+
+export namespace be {
+
+class Shader
+{
+public:
+    static Shader Create(const sg_shader_desc& desc)
+    {
+        Shader shader;
+        shader.mHandle = sg_make_shader(&desc);
+        return shader;
+    }
+
+    sg_shader GetHandle() const { return mHandle; }
+    bool IsValid() const { return mHandle.id != SG_INVALID_ID; }
+
+    void Destroy()
+    {
+        if (mHandle.id != SG_INVALID_ID)
+        {
+            sg_destroy_shader(mHandle);
+            mHandle = {SG_INVALID_ID};
+        }
+    }
+
+private:
+    sg_shader mHandle{SG_INVALID_ID};
+};
+
+class ShaderLibrary
+{
+public:
+    Shader* Load(const std::string& name, const sg_shader_desc& desc)
+    {
+        auto shader = Shader::Create(desc);
+        if (!shader.IsValid()) return nullptr;
+        auto [it, _] = mShaders.emplace(name, std::move(shader));
+        return &it->second;
+    }
+
+    Shader* Get(const std::string& name)
+    {
+        auto it = mShaders.find(name);
+        return it != mShaders.end() ? &it->second : nullptr;
+    }
+
+    void Clear()
+    {
+        for (auto& [_, s] : mShaders) s.Destroy();
+        mShaders.clear();
+    }
+
+private:
+    std::unordered_map<std::string, Shader> mShaders;
+};
+
+} // namespace be

@@ -18,6 +18,8 @@ class Editor
     static constexpr const char* StateFile = "Saved/Config/EditorState.cfg";
 
 public:
+    using FocusFn = std::function<void(std::uint32_t entityId)>;
+
     void Init()
     {
         std::filesystem::create_directories(ConfigDir);
@@ -35,9 +37,13 @@ public:
     void Shutdown()
     {
         mInitialized = false;
-
         ImGui::SaveIniSettingsToDisk(LayoutFile);
         SaveState();
+    }
+
+    void SetFocusCallback(FocusFn fn)
+    {
+        mFocusCallback = std::move(fn);
     }
 
     void AddLog(const std::string& text)
@@ -48,25 +54,23 @@ public:
     void Draw(const FrameSnapshot::DebugUI* debug)
     {
         if (!mInitialized) return;
+        mDebug = debug;
 
         SetupDockspace();
         DrawMainMenuBar();
         DrawViewportContextMenu();
 
-        if (mShowSceneBrowser) DrawSceneBrowser(debug);
+        if (mShowSceneBrowser) DrawSceneBrowser();
         if (mShowHierarchy)    DrawHierarchy();
         if (mShowInspector)    DrawInspector();
         if (mShowConsole)      DrawConsole();
-        if (mShowStats)        DrawStats(debug);
+        if (mShowStats)        DrawStats();
     }
 
 private:
-    void SetupDockspace()
-    {
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
-            ImGuiDockNodeFlags_PassthruCentralNode);
-    }
     bool mInitialized = false;
+    FocusFn mFocusCallback;
+    const FrameSnapshot::DebugUI* mDebug = nullptr;
 
     bool mShowSceneBrowser = true;
     bool mShowHierarchy    = true;
@@ -76,13 +80,17 @@ private:
 
     std::vector<std::string> mLog;
     bool mAutoScrollLog = true;
-    int mSelectedEntityId = -1;
+
+    void SetupDockspace()
+    {
+        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+            ImGuiDockNodeFlags_PassthruCentralNode);
+    }
 
     void LoadState()
     {
         std::ifstream file(StateFile);
         if (!file.is_open()) return;
-
         std::string line;
         while (std::getline(file, line))
         {
@@ -90,7 +98,6 @@ private:
             if (eq == std::string::npos) continue;
             std::string key = line.substr(0, eq);
             std::string val = line.substr(eq + 1);
-
             if (key == "ShowSceneBrowser") mShowSceneBrowser = (val == "1");
             if (key == "ShowHierarchy")    mShowHierarchy    = (val == "1");
             if (key == "ShowInspector")    mShowInspector    = (val == "1");
@@ -103,7 +110,6 @@ private:
     {
         std::ofstream file(StateFile);
         if (!file.is_open()) return;
-
         file << "ShowSceneBrowser=" << (mShowSceneBrowser ? "1" : "0") << "\n";
         file << "ShowHierarchy="    << (mShowHierarchy    ? "1" : "0") << "\n";
         file << "ShowInspector="    << (mShowInspector    ? "1" : "0") << "\n";
@@ -114,7 +120,6 @@ private:
     void DrawMainMenuBar()
     {
         if (!ImGui::BeginMainMenuBar()) return;
-
         if (ImGui::BeginMenu("File"))
         {
             ImGui::MenuItem("New Scene", "Ctrl+N");
@@ -124,7 +129,6 @@ private:
             if (ImGui::MenuItem("Exit", "Alt+F4")) {}
             ImGui::EndMenu();
         }
-
         if (ImGui::BeginMenu("Edit"))
         {
             ImGui::MenuItem("Undo", "Ctrl+Z");
@@ -133,7 +137,6 @@ private:
             ImGui::MenuItem("Delete", "Del");
             ImGui::EndMenu();
         }
-
         if (ImGui::BeginMenu("View"))
         {
             ImGui::MenuItem("Scene Browser", nullptr, &mShowSceneBrowser);
@@ -144,7 +147,6 @@ private:
             ImGui::MenuItem("Stats",        nullptr, &mShowStats);
             ImGui::EndMenu();
         }
-
         if (ImGui::BeginMenu("GameObject"))
         {
             if (ImGui::MenuItem("Create Empty"))  {}
@@ -154,13 +156,11 @@ private:
             if (ImGui::MenuItem("Create Light"))  {}
             ImGui::EndMenu();
         }
-
         if (ImGui::BeginMenu("Help"))
         {
             ImGui::MenuItem("About BlockEngine");
             ImGui::EndMenu();
         }
-
         ImGui::EndMainMenuBar();
     }
 
@@ -179,17 +179,15 @@ private:
         }
     }
 
-    void DrawSceneBrowser(const FrameSnapshot::DebugUI* debug)
+    void DrawSceneBrowser()
     {
         ImGui::Begin("Scene Browser");
-
-        if (debug)
+        if (mDebug)
         {
-            ImGui::Text("Scene: %s", debug->sceneName.c_str());
-            ImGui::Text("Levels: %d", debug->levelCount);
-            ImGui::Text("Entities: %d", debug->entityCount);
-            ImGui::Text("Time: %.2fs", debug->timeSinceStart);
-
+            ImGui::Text("Scene: %s", mDebug->sceneName.c_str());
+            ImGui::Text("Levels: %d", mDebug->levelCount);
+            ImGui::Text("Entities: %d", mDebug->entityCount);
+            ImGui::Text("Time: %.2fs", mDebug->timeSinceStart);
             ImGui::Separator();
 
             if (ImGui::BeginPopupContextWindow("SceneBrowserContext"))
@@ -201,16 +199,14 @@ private:
                 ImGui::EndPopup();
             }
 
-            DrawSelectionInfo(debug);
+            DrawSelectionInfo();
         }
-
         ImGui::End();
     }
 
     void DrawHierarchy()
     {
         ImGui::Begin("Hierarchy");
-
         if (ImGui::BeginPopupContextWindow("HierarchyContext",
                 ImGuiPopupFlags_MouseButtonRight
                 | ImGuiPopupFlags_NoOpenOverItems))
@@ -222,18 +218,22 @@ private:
         }
 
         ImGui::TextColored({1.0f, 1.0f, 0.4f, 1.0f}, "Scene");
-
-        bool mainOpen = ImGui::TreeNodeEx("  DemoLevel",
+        bool open = ImGui::TreeNodeEx("  DemoLevel",
             ImGuiTreeNodeFlags_DefaultOpen);
-        if (mainOpen)
+        if (open)
         {
-            ShowEntityNode(0, "Cube [0]");
-            ShowEntityNode(1, "Cube [1]");
-            ShowEntityNode(2, "Cube [2]");
-            ImGui::Text("  ...");
+            if (mDebug)
+            {
+                for (auto& info : mDebug->entities)
+                {
+                    std::string label =
+                        std::format("Entity_{}", info.id);
+                    ShowEntityNode(
+                        static_cast<int>(info.id), label.c_str());
+                }
+            }
             ImGui::TreePop();
         }
-
         ImGui::End();
     }
 
@@ -244,12 +244,24 @@ private:
             | ImGuiTreeNodeFlags_Bullet
             | ImGuiTreeNodeFlags_NoTreePushOnOpen);
 
-        std::string contextId = std::format("EntityContext_{}", id);
-        if (ImGui::BeginPopupContextItem(contextId.c_str()))
+        if (ImGui::IsItemHovered()
+            && ImGui::IsMouseDoubleClicked(0))
         {
-            mSelectedEntityId = id;
+            if (mFocusCallback)
+            {
+                mFocusCallback(static_cast<std::uint32_t>(id));
+            }
+        }
+
+        std::string ctxId = std::format("EntityCtx_{}", id);
+        if (ImGui::BeginPopupContextItem(ctxId.c_str()))
+        {
+            mInspectedEntityId = id;
+            if (mFocusCallback)
+                mFocusCallback(static_cast<std::uint32_t>(id));
+            if (ImGui::MenuItem("Focus")) {}
             if (ImGui::MenuItem("Duplicate")) {}
-            if (ImGui::MenuItem("Rename"))    {}
+            if (ImGui::MenuItem("Rename")) {}
             ImGui::Separator();
             if (ImGui::MenuItem("Delete", "Del")) {}
             ImGui::EndPopup();
@@ -260,26 +272,74 @@ private:
     {
         ImGui::Begin("Inspector");
 
-        if (mSelectedEntityId >= 0)
+        if (mDebug
+            && mDebug->selectedEntity != ecs::Null)
         {
-            ImGui::Text("Entity %d", mSelectedEntityId);
+            auto& e = mDebug->selectedEntity;
+            ImGui::Text("Entity %u (gen %u)", e.i, e.g);
             ImGui::Separator();
 
-            static float pos[3] = {0, 0, 0};
-            ImGui::DragFloat3("Position", pos, 0.1f);
+            static bool showTransform = true;
+            if (ImGui::CollapsingHeader("Transform",
+                    &showTransform, ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                float p[3] = {
+                    mDebug->selectedTransform.position.x,
+                    mDebug->selectedTransform.position.y,
+                    mDebug->selectedTransform.position.z};
+                ImGui::DragFloat3("Position", p, 0.1f);
 
-            static float rot[3] = {0, 0, 0};
-            ImGui::DragFloat3("Rotation", rot, 1.0f);
+                float r[3] = {
+                    mDebug->selectedTransform.rotation.x,
+                    mDebug->selectedTransform.rotation.y,
+                    mDebug->selectedTransform.rotation.z};
+                ImGui::DragFloat3("Rotation", r, 1.0f);
 
-            static float scl[3] = {1, 1, 1};
-            ImGui::DragFloat3("Scale", scl, 0.1f);
+                float s[3] = {
+                    mDebug->selectedTransform.scale.x,
+                    mDebug->selectedTransform.scale.y,
+                    mDebug->selectedTransform.scale.z};
+                ImGui::DragFloat3("Scale", s, 0.1f);
+            }
 
+            static bool showRenderer = true;
+            if (ImGui::CollapsingHeader("Mesh Renderer",
+                    &showRenderer, ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                float c[3] = {
+                    mDebug->selectedRenderer.color.x,
+                    mDebug->selectedRenderer.color.y,
+                    mDebug->selectedRenderer.color.z};
+                ImGui::ColorEdit3("Color", c);
+                bool visible = mDebug->selectedRenderer.visible;
+                ImGui::Checkbox("Visible", &visible);
+                float he[3] = {
+                    mDebug->selectedRenderer.halfExtents.x,
+                    mDebug->selectedRenderer.halfExtents.y,
+                    mDebug->selectedRenderer.halfExtents.z};
+                ImGui::DragFloat3("Half Extents", he, 0.1f);
+            }
+
+            if (mDebug->hasVelocity)
+            {
+                static bool showVel = true;
+                if (ImGui::CollapsingHeader("Velocity",
+                        &showVel, ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    float vx = mDebug->selectedVelocityX;
+                    float vy = mDebug->selectedVelocityY;
+                    float vz = mDebug->selectedVelocityZ;
+                    float vel[3] = {vx, vy, vz};
+                    ImGui::DragFloat3("Value", vel, 0.1f);
+                }
+            }
+        }
+        else if (mInspectedEntityId >= 0)
+        {
+            ImGui::Text("Entity %d", mInspectedEntityId);
             ImGui::Separator();
-            static bool visible = true;
-            ImGui::Checkbox("Visible", &visible);
-
-            static float col[3] = {1, 1, 1};
-            ImGui::ColorEdit3("Color", col);
+            ImGui::TextColored({0.5f, 0.5f, 0.5f, 1.0f},
+                "Click entity in viewport to see details");
         }
         else
         {
@@ -293,96 +353,63 @@ private:
     void DrawConsole()
     {
         ImGui::Begin("Console");
-
         if (ImGui::BeginPopupContextWindow("ConsoleContext"))
         {
             if (ImGui::MenuItem("Clear")) { mLog.clear(); }
             ImGui::EndPopup();
         }
-
         ImGui::BeginChild("LogScroll",
             ImVec2(0, -ImGui::GetFrameHeightWithSpacing()),
             ImGuiChildFlags_None,
             ImGuiWindowFlags_HorizontalScrollbar);
-
         for (auto& entry : mLog)
         {
-            ImVec4 color{1, 1, 1, 1};
-            if (entry.find("[warn]") != std::string::npos)
-                color = {1, 1, 0.4f, 1};
-            else if (entry.find("[error]") != std::string::npos)
-                color = {1, 0.4f, 0.4f, 1};
-            else if (entry.find("[info]") != std::string::npos)
-                color = {0.4f, 1, 0.4f, 1};
-
-            ImGui::TextColored(color, "%s", entry.c_str());
+            ImVec4 c{1, 1, 1, 1};
+            if (entry.find("[warn]")  != std::string::npos) c = {1,1,0.4f,1};
+            if (entry.find("[error]") != std::string::npos) c = {1,0.4f,0.4f,1};
+            if (entry.find("[info]")  != std::string::npos) c = {0.4f,1,0.4f,1};
+            ImGui::TextColored(c, "%s", entry.c_str());
         }
-
-        if (mAutoScrollLog && ImGui::GetScrollY()
-            >= ImGui::GetScrollMaxY())
-        {
+        if (mAutoScrollLog
+            && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
             ImGui::SetScrollHereY(1.0f);
-        }
-
         ImGui::EndChild();
         ImGui::End();
     }
 
-    void DrawStats(const FrameSnapshot::DebugUI* debug)
+    void DrawStats()
     {
         ImGui::Begin("Stats");
-
-        if (debug)
+        if (mDebug)
         {
-            ImGui::Text("Scene: %s", debug->sceneName.c_str());
-            ImGui::Text("Levels: %d", debug->levelCount);
-            ImGui::Text("Entities: %d", debug->entityCount);
-            ImGui::Text("Time: %.2fs", debug->timeSinceStart);
-
-            if (debug->selectedEntity != ecs::Null)
+            ImGui::Text("Scene: %s", mDebug->sceneName.c_str());
+            ImGui::Text("Levels: %d", mDebug->levelCount);
+            ImGui::Text("Entities: %d", mDebug->entityCount);
+            ImGui::Text("Time: %.2fs", mDebug->timeSinceStart);
+            if (mDebug->selectedEntity != ecs::Null)
             {
                 ImGui::Separator();
-                ImGui::Text("Selected: %u", debug->selectedEntity.i);
-                ImGui::Text("  Gen: %u", debug->selectedEntity.g);
-                Vec3 pos = debug->selectedTransform.position;
-                ImGui::Text("  Pos: (%.2f, %.2f, %.2f)",
-                    pos.x, pos.y, pos.z);
+                ImGui::Text("Selected: %u", mDebug->selectedEntity.i);
             }
         }
-
         ImGui::End();
     }
 
-    void DrawSelectionInfo(const FrameSnapshot::DebugUI* debug)
+    void DrawSelectionInfo()
     {
-        if (debug->selectedEntity != ecs::Null)
+        if (mDebug && mDebug->selectedEntity != ecs::Null)
         {
-            ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "Selected");
+            ImGui::TextColored({0.3f,1,0.3f,1}, "Selected");
             ImGui::Text("Entity %u (gen %u)",
-                debug->selectedEntity.i, debug->selectedEntity.g);
-            Vec3 pos = debug->selectedTransform.position;
-            ImGui::Text("Position: (%.2f, %.2f, %.2f)",
-                pos.x, pos.y, pos.z);
-            ImGui::Text("Color: (%.2f, %.2f, %.2f)",
-                debug->selectedRenderer.color.x,
-                debug->selectedRenderer.color.y,
-                debug->selectedRenderer.color.z);
-            ImGui::Checkbox("Visible",
-                (bool*)(&debug->selectedRenderer.visible));
-            if (debug->hasVelocity)
-            {
-                ImGui::Text("Velocity: (%.2f, %.2f, %.2f)",
-                    debug->selectedVelocityX,
-                    debug->selectedVelocityY,
-                    debug->selectedVelocityZ);
-            }
+                mDebug->selectedEntity.i, mDebug->selectedEntity.g);
         }
         else
         {
-            ImGui::TextColored({0.5f, 0.5f, 0.5f, 1.0f},
-                "No selection");
+            ImGui::TextColored({0.5f,0.5f,0.5f,1}, "No selection");
         }
     }
+
+    int mInspectedEntityId = -1;
 };
 
 } // namespace be

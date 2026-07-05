@@ -1,5 +1,5 @@
 target("Engine")
     set_kind("static")
-    add_deps("Core", "Platform", "Render", "Input", "Audio", "UI", "Scene")
+    add_deps("Core", "Platform", "Render", "Input", "Audio", "UI", "Asset", "Scene")
     add_packages("spdlog")
     add_files("Engine.mpp", {public = true})

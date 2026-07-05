@@ -1,5 +1,6 @@
 import be.engine;
 import be.platform;
+import be.scene;
 
 int main()
 {
@@ -9,6 +10,7 @@ int main()
     desc.title = "BlockEngine";
 
     be::Engine engine;
+    engine.SetSceneProfile(be::SceneProfile::Runtime);
     engine.Run(desc);
 
     return 0;

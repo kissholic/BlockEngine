@@ -1,0 +1,313 @@
+export module be.asset;
+
+import std;
+
+export namespace be::asset {
+
+inline constexpr std::uint32_t BlockMagic   = 0x004B4C42;
+inline constexpr std::uint32_t BlockVersion  = 1;
+inline constexpr std::uint32_t EntryFlagRef  = 1u << 0;
+
+struct BlockHeader
+{
+    std::uint32_t magic         = BlockMagic;
+    std::uint32_t version       = BlockVersion;
+    std::uint64_t dataSize      = 0;
+    std::uint32_t resourceCount = 0;
+    std::uint32_t flags         = 0;
+    std::uint32_t _pad[2]       = {0, 0};
+};
+static_assert(sizeof(BlockHeader) == 32);
+
+struct ResourceRef
+{
+    std::string file;
+    std::string resource;
+    std::uint64_t typeHash = 0;
+    bool valid = false;
+};
+
+struct ResourceEntry
+{
+    std::uint64_t typeHash = 0;
+    std::string name;
+    std::uint32_t entryFlags = 0;
+    std::vector<std::uint8_t> payload;
+    ResourceRef ref;
+
+    bool IsRef() const { return entryFlags & EntryFlagRef; }
+};
+
+inline std::uint64_t TypeHash(const std::string& typeName)
+{
+    constexpr std::uint64_t fnvBasis = 14695981039346656037ULL;
+    constexpr std::uint64_t fnvPrime = 1099511628211ULL;
+    std::uint64_t h = fnvBasis;
+    for (auto c : typeName)
+    {
+        h ^= static_cast<std::uint64_t>(static_cast<std::uint8_t>(c));
+        h *= fnvPrime;
+    }
+    return h;
+}
+
+inline std::uint32_t CRC32(const std::uint8_t* data, std::size_t size)
+{
+    std::uint32_t crc = 0xFFFFFFFF;
+    for (std::size_t i = 0; i < size; ++i)
+    {
+        crc ^= data[i];
+        for (int j = 0; j < 8; ++j)
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return ~crc;
+}
+
+inline void WriteU32(std::vector<std::uint8_t>& b, std::uint32_t v)
+{
+    b.push_back(v & 0xFF);
+    b.push_back((v >> 8) & 0xFF);
+    b.push_back((v >> 16) & 0xFF);
+    b.push_back((v >> 24) & 0xFF);
+}
+
+inline void WriteU64(std::vector<std::uint8_t>& b, std::uint64_t v)
+{
+    WriteU32(b, static_cast<std::uint32_t>(v));
+    WriteU32(b, static_cast<std::uint32_t>(v >> 32));
+}
+
+inline std::uint32_t ReadU32(
+    const std::vector<std::uint8_t>& b, std::size_t& off)
+{
+    std::uint32_t v = static_cast<std::uint32_t>(b[off])
+        | (static_cast<std::uint32_t>(b[off + 1]) << 8)
+        | (static_cast<std::uint32_t>(b[off + 2]) << 16)
+        | (static_cast<std::uint32_t>(b[off + 3]) << 24);
+    off += 4;
+    return v;
+}
+
+inline std::uint64_t ReadU64(
+    const std::vector<std::uint8_t>& b, std::size_t& off)
+{
+    auto lo = ReadU32(b, off);
+    auto hi = ReadU32(b, off);
+    return lo | (static_cast<std::uint64_t>(hi) << 32);
+}
+
+template <typename T>
+concept TriviallySerializable = std::is_trivially_copyable_v<T>;
+
+template <TriviallySerializable T>
+std::vector<std::uint8_t> SerializeComp(const T& obj)
+{
+    auto* begin = reinterpret_cast<const std::uint8_t*>(&obj);
+    return {begin, begin + sizeof(T)};
+}
+
+template <TriviallySerializable T>
+T DeserializeComp(const std::vector<std::uint8_t>& data)
+{
+    T obj;
+    auto sz = std::min(data.size(), sizeof(T));
+    std::memcpy(&obj, data.data(), sz);
+    return obj;
+}
+
+inline std::vector<std::uint8_t> SerializeRef(const ResourceRef& ref)
+{
+    std::vector<std::uint8_t> buf;
+    auto writeStr = [&](const std::string& s) {
+        WriteU32(buf, static_cast<std::uint32_t>(s.size()));
+        buf.insert(buf.end(), s.begin(), s.end());
+    };
+    writeStr(ref.file);
+    writeStr(ref.resource);
+    WriteU64(buf, ref.typeHash);
+    return buf;
+}
+
+inline ResourceRef DeserializeRef(const std::vector<std::uint8_t>& data)
+{
+    ResourceRef ref;
+    std::size_t off = 0;
+    auto readStr = [&]() -> std::string {
+        std::uint32_t len = ReadU32(data, off);
+        std::string s(reinterpret_cast<const char*>(&data[off]), len);
+        off += len;
+        return s;
+    };
+    ref.file     = readStr();
+    ref.resource = readStr();
+    ref.typeHash = ReadU64(data, off);
+    ref.valid    = !ref.resource.empty();
+    return ref;
+}
+
+class TypeRegistry
+{
+public:
+    using DeserializeFn = std::function<
+        bool(const ResourceEntry&, void* /* scene data */)>;
+
+    void Register(std::uint64_t typeHash, DeserializeFn fn)
+    {
+        mRegistry[typeHash] = std::move(fn);
+    }
+
+    bool Deserialize(
+        const ResourceEntry& entry, void* context) const
+    {
+        auto it = mRegistry.find(entry.typeHash);
+        if (it == mRegistry.end()) return false;
+        return it->second(entry, context);
+    }
+
+private:
+    std::unordered_map<std::uint64_t, DeserializeFn> mRegistry;
+};
+
+class BlockWriter
+{
+public:
+    BlockWriter& Add(
+        std::uint64_t typeHash,
+        std::string name,
+        std::vector<std::uint8_t> payload)
+    {
+        mEntries.push_back({
+            typeHash, std::move(name), 0,
+            std::move(payload), {}
+        });
+        return *this;
+    }
+
+    BlockWriter& AddRef(
+        std::uint64_t typeHash,
+        std::string name,
+        ResourceRef ref)
+    {
+        mEntries.push_back({
+            typeHash, std::move(name), EntryFlagRef,
+            SerializeRef(ref), std::move(ref)
+        });
+        return *this;
+    }
+
+    bool Save(const std::string& path)
+    {
+        std::ofstream file(path, std::ios::binary);
+        if (!file.is_open()) return false;
+
+        BlockHeader header;
+        header.resourceCount =
+            static_cast<std::uint32_t>(mEntries.size());
+
+        std::vector<std::uint8_t> body;
+        for (auto& e : mEntries)
+        {
+            WriteU64(body, e.typeHash);
+            WriteU32(body,
+                static_cast<std::uint32_t>(e.name.size()));
+            body.insert(body.end(), e.name.begin(), e.name.end());
+            WriteU32(body, e.entryFlags);
+            WriteU64(body,
+                static_cast<std::uint64_t>(e.payload.size()));
+            body.insert(body.end(),
+                e.payload.begin(), e.payload.end());
+        }
+
+        header.dataSize = body.size();
+        file.write(reinterpret_cast<const char*>(&header),
+            sizeof(header));
+
+        std::uint32_t crc = CRC32(body.data(), body.size());
+        WriteU32(body, crc);
+
+        file.write(reinterpret_cast<const char*>(body.data()),
+            static_cast<std::streamsize>(body.size()));
+
+        return file.good();
+    }
+
+private:
+    struct Entry
+    {
+        std::uint64_t typeHash;
+        std::string name;
+        std::uint32_t entryFlags;
+        std::vector<std::uint8_t> payload;
+        ResourceRef ref;
+    };
+    std::vector<Entry> mEntries;
+};
+
+class BlockReader
+{
+public:
+    bool Load(const std::string& path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) return false;
+
+        BlockHeader header;
+        file.read(reinterpret_cast<char*>(&header), sizeof(header));
+        if (header.magic != BlockMagic) return false;
+        if (header.version != BlockVersion) return false;
+
+        auto bodySize = header.dataSize + 4;
+        std::vector<std::uint8_t> body(bodySize);
+        file.read(reinterpret_cast<char*>(body.data()),
+            static_cast<std::streamsize>(bodySize));
+        body.resize(static_cast<std::size_t>(file.gcount()));
+
+        if (body.size() < 4) return false;
+
+        std::size_t bodyLen = body.size() - 4;
+        std::size_t dataLen = bodyLen;
+        std::uint32_t crcStored   = ReadU32(body, bodyLen);
+        std::uint32_t crcComputed = CRC32(body.data(), dataLen);
+        if (crcStored != crcComputed) return false;
+
+        std::size_t off = 0;
+        for (std::uint32_t i = 0; i < header.resourceCount; ++i)
+        {
+            ResourceEntry entry;
+            entry.typeHash = ReadU64(body, off);
+
+            std::uint32_t nameLen = ReadU32(body, off);
+            entry.name.assign(
+                reinterpret_cast<const char*>(&body[off]), nameLen);
+            off += nameLen;
+
+            entry.entryFlags = ReadU32(body, off);
+
+            std::uint64_t payloadLen = ReadU64(body, off);
+            auto pl = static_cast<std::size_t>(payloadLen);
+            entry.payload.assign(
+                body.begin() + static_cast<std::ptrdiff_t>(off),
+                body.begin() + static_cast<std::ptrdiff_t>(off + pl));
+            off += pl;
+
+            if (entry.IsRef())
+            {
+                entry.ref = DeserializeRef(entry.payload);
+            }
+
+            mEntries.push_back(std::move(entry));
+        }
+
+        return true;
+    }
+
+    const std::vector<ResourceEntry>& GetEntries() const
+    {
+        return mEntries;
+    }
+
+private:
+    std::vector<ResourceEntry> mEntries;
+};
+
+} // namespace be::asset

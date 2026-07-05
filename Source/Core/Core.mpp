@@ -4,6 +4,7 @@ import std;
 
 export import :math;
 export import :ecs;
+export import :system;
 
 export namespace be {
 

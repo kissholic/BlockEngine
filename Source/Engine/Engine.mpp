@@ -39,6 +39,11 @@ public:
         mEditorDrawCallback = std::move(fn);
     }
 
+    void SetSceneProfile(SceneProfile profile)
+    {
+        mSceneProfile = profile;
+    }
+
     RenderBridge& GetBridge() { return mBridge; }
 
     void Run(const SokolApp::Desc& desc)
@@ -62,13 +67,24 @@ public:
 
     Scene* GetCurrentScene() { return mCurrentScene.get(); }
 
+    void FocusEntity(std::uint32_t entityId)
+    {
+        if (mCurrentScene)
+        {
+            mCurrentScene->FocusEntity(entityId);
+        }
+    }
+
     void OnAppInit() override
     {
         spdlog::info("Engine::OnAppInit");
         mRender.Init();
         mUI.Init();
 
-        LoadScene(std::make_unique<Scene>());
+        auto scene = std::make_unique<Scene>();
+        scene->SetProfile(mSceneProfile);
+        scene->SetInput(&mInput);
+        LoadScene(std::move(scene));
 
         if (mEditorInitCallback) { mEditorInitCallback(); }
 
@@ -92,6 +108,9 @@ public:
             camera.target = snapshot->cameraTarget;
 
             mRender.BeginFrame(app.AspectRatio(), camera);
+            mRender.SetLighting(snapshot->ambientLight,
+                snapshot->lightDir, snapshot->lightColor,
+                snapshot->lightIntensity, snapshot->cameraPosition);
 
             for (auto& cmd : snapshot->commands)
             {
@@ -149,6 +168,7 @@ private:
 
     EditorDrawFn mEditorDrawCallback;
     EditorInitFn mEditorInitCallback;
+    SceneProfile mSceneProfile = SceneProfile::Runtime;
 
     void GameLoop()
     {
@@ -168,7 +188,7 @@ private:
 
                 if (mCurrentScene)
                 {
-                    mCurrentScene->Update(fixedDt, mInput);
+                    mCurrentScene->Update(fixedDt);
                     mCurrentScene->CollectAndPublish(mBridge);
                 }
             }
